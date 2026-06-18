@@ -1,5 +1,5 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { ColorValue, CustomItemPosition, CustomStatusItem, PresetDef, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions } from "./types.ts";
+import type { ColorValue, CostSubscriptionDisplay, CustomItemPosition, CustomStatusItem, PresetDef, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions } from "./types.ts";
 
 export interface PowerlineConfig {
   preset: StatusLinePreset;
@@ -41,6 +41,11 @@ function normalizeCustomPrefix(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized ? normalized : undefined;
+}
+
+function normalizeCostSubscriptionDisplay(value: unknown): CostSubscriptionDisplay | undefined {
+  if (value === "subscription" || value === "reported-cost" || value === "both") return value;
+  return undefined;
 }
 
 function normalizeCustomStatusItem(raw: unknown, idOverride?: string): CustomStatusItem | null {
@@ -119,6 +124,13 @@ function normalizeSegmentOptions(raw: Record<string, unknown>): StatusLineSegmen
     };
   }
 
+  if (isRecord(raw.cost)) {
+    const subscriptionDisplay = normalizeCostSubscriptionDisplay(raw.cost.subscriptionDisplay);
+    options.cost = {
+      ...(subscriptionDisplay ? { subscriptionDisplay } : {}),
+    };
+  }
+
   return options;
 }
 
@@ -133,6 +145,7 @@ export function mergeSegmentOptions(
     path: { ...defaults.path, ...overrides.path },
     git: { ...defaults.git, ...overrides.git },
     time: { ...defaults.time, ...overrides.time },
+    cost: { ...defaults.cost, ...overrides.cost },
   };
 }
 

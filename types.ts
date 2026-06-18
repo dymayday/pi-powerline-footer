@@ -74,6 +74,8 @@ export type StatusLinePreset =
   | "ascii"
   | "custom";
 
+export type CostSubscriptionDisplay = "subscription" | "reported-cost" | "both";
+
 // Per-segment options
 export interface StatusLineSegmentOptions {
   model?: { showThinkingLevel?: boolean };
@@ -89,6 +91,7 @@ export interface StatusLineSegmentOptions {
     polling?: "full" | "branch" | "off";
   };
   time?: { format?: "12h" | "24h"; showSeconds?: boolean };
+  cost?: { subscriptionDisplay?: CostSubscriptionDisplay };
 }
 
 export type CustomItemPosition = "left" | "right" | "secondary";

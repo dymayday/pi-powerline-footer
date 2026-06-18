@@ -318,6 +318,28 @@ The path segment supports three modes:
 
 Configure via preset options: `path: { mode: "full" }`
 
+## Cost Display
+
+When Pi detects subscription/OAuth auth, the cost segment defaults to the existing subscription marker behavior:
+
+```json
+{
+  "powerline": {
+    "cost": { "subscriptionDisplay": "subscription" }
+  }
+}
+```
+
+`subscriptionDisplay` supports three modes:
+
+| Mode | Subscription + reported cost | Subscription + no reported cost | Description |
+|------|------------------------------|----------------------------------|-------------|
+| `subscription` | `(sub)` | `(sub)` | Existing/default behavior |
+| `reported-cost` | `$0.12` | `(sub)` | Prefer provider-reported session cost when available |
+| `both` | `$0.12 (sub)` | `(sub)` | Show both reported cost and subscription marker |
+
+Non-subscription auth keeps the normal dollar-cost behavior.
+
 ## Git polling
 
 By default the git segment polls both branch and dirty state. If background `git status --porcelain` calls interfere with your workflow, use branch-only polling:

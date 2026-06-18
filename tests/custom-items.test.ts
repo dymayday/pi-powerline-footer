@@ -52,6 +52,7 @@ test("parsePowerlineConfig extracts supported segment options", () => {
       path: { mode: "full", maxLength: 120 },
       git: { showBranch: false, showStaged: false, showUnstaged: true, showUntracked: false, polling: "branch" },
       time: { format: "12h", showSeconds: true },
+      cost: { subscriptionDisplay: "reported-cost" },
     },
     ["default", "compact"],
   );
@@ -61,20 +62,22 @@ test("parsePowerlineConfig extracts supported segment options", () => {
     path: { mode: "full", maxLength: 120 },
     git: { showBranch: false, showStaged: false, showUnstaged: true, showUntracked: false, polling: "branch" },
     time: { format: "12h", showSeconds: true },
+    cost: { subscriptionDisplay: "reported-cost" },
   });
 });
 
 test("mergeSegmentOptions lets user config override preset segment defaults", () => {
   assert.deepEqual(
     mergeSegmentOptions(
-      { path: { mode: "basename", maxLength: 20 }, git: { showBranch: true, showUntracked: true } },
-      { path: { mode: "full" }, git: { showUntracked: false } },
+      { path: { mode: "basename", maxLength: 20 }, git: { showBranch: true, showUntracked: true }, cost: { subscriptionDisplay: "subscription" } },
+      { path: { mode: "full" }, git: { showUntracked: false }, cost: { subscriptionDisplay: "both" } },
     ),
     {
       model: {},
       path: { mode: "full", maxLength: 20 },
       git: { showBranch: true, showUntracked: false },
       time: {},
+      cost: { subscriptionDisplay: "both" },
     },
   );
 });
