@@ -349,7 +349,9 @@ git commit -m "feat: scan async subagent status files"
 Add tests for:
 
 - `handleAsyncStarted({ id, asyncDir })` creates visible running status.
-- `handleAsyncComplete({ id, success: true })` moves to terminal success and clears after `TERMINAL_RETENTION_MS` using injected `now`.
+- `handleAsyncComplete({ id, success: true })`, `handleAsyncComplete({ runId, success: true })`, and `handleAsyncComplete({ asyncId, success: true })` all resolve the run id and move to terminal success.
+- `handleAsyncComplete({ runId, state: "paused" })` preserves paused state instead of mapping it to failed.
+- Terminal summaries clear automatically after `TERMINAL_RETENTION_MS` using fake timers; polling/prune remains active while either active async runs or retained terminal summaries exist.
 - Missing status clears after `MISSING_STATUS_GRACE_MS`.
 - Malformed status clears after `MAX_STATUS_READ_FAILURES`.
 - `handleForegroundStart`, `handleForegroundUpdate`, and `handleForegroundEnd` produce start/end fallback even without partial details.
@@ -370,13 +372,48 @@ test("controller retains completion briefly then clears", () => {
   controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
   assert.match(controller.getPowerlineStatus().content, /worker/);
 
-  controller.handleAsyncComplete({ id: "run-1", success: true });
+  controller.handleAsyncComplete({ runId: "run-1", success: true });
   assert.match(controller.getPowerlineStatus().content, /complete/);
 
   now += TERMINAL_RETENTION_MS + 1;
   controller.prune();
   assert.equal(controller.getPowerlineStatus().visible, false);
   assert.ok(renderRequests >= 2);
+});
+
+test("controller preserves paused async completion state", () => {
+  const controller = createSubagentStatusController({ scanAsyncRuns: () => [] });
+  controller.handleAsyncStarted({ asyncId: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  controller.handleAsyncComplete({ runId: "run-1", state: "paused" });
+  const status = controller.getPowerlineStatus();
+  assert.equal(status.tone, "paused");
+  assert.match(status.content, /paused/);
+});
+
+test("controller automatically clears retained terminal summary on timer tick", () => {
+  let now = 1_000;
+  let intervalCallback: (() => void) | null = null;
+  let cleared = false;
+  const controller = createSubagentStatusController({
+    getNow: () => now,
+    scanAsyncRuns: () => [],
+    setIntervalFn: (callback: () => void) => {
+      intervalCallback = callback;
+      return 1 as never;
+    },
+    clearIntervalFn: () => { cleared = true; },
+  });
+
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  controller.handleAsyncComplete({ id: "run-1", success: true });
+  assert.equal(controller.getPowerlineStatus().visible, true);
+
+  now += TERMINAL_RETENTION_MS + 1;
+  intervalCallback?.();
+
+  assert.equal(controller.getPowerlineStatus().visible, false);
+  assert.equal(cleared, true);
 });
 ```
 
@@ -425,11 +462,13 @@ interface SubagentStatusControllerDeps {
 Implementation notes:
 
 - Store async runs in a `Map<string, SubagentRunSummary & { asyncDir?: string; missingSince?: number; readFailures?: number }>`.
-- Start polling only when active async runs exist.
+- Resolve async completion IDs from `id`, `runId`, or `asyncId`. Preserve explicit `state: "paused"`; map `success: true` to `complete`; map `success: false` with no paused state to `failed`.
+- Keep polling/prune active while either active async runs exist or a retained terminal summary exists. Stop polling only when neither exists.
+- Schedule or tick pruning so terminal summaries clear automatically after `TERMINAL_RETENTION_MS`; do not require a later external event to clear them.
 - Call `requestRender()` whenever the visible snapshot might change.
 - Foreground `handleForegroundStart` should parse `event.args` enough to identify agent/mode when available but degrade to `subagents foreground`.
 - Foreground `handleForegroundUpdate` should defensively read possible partial details only through a helper like `extractForegroundDetails(event: unknown)`; if no known shape exists, no-op.
-- `handleForegroundEnd` should set `lastTerminal` with `state: event.isError ? "failed" : "complete"` and clear foreground.
+- `handleForegroundEnd` should set `lastTerminal` with `state: event.isError ? "failed" : "complete"` and clear foreground. Foreground paused/interrupt states may be added later if Pi exposes them, but do not infer paused from generic non-success.
 - `handleControlEvent` should set matching run/step `activityState = "needs_attention"` when payload includes `event.type === "needs_attention"` and a run id.
 
 - [ ] **Step 4: Run controller tests**
@@ -622,7 +661,20 @@ Inside `pi.on("session_shutdown", ...)`:
 subagentStatus.dispose();
 ```
 
-Also call `subagentStatus.scanNow()` after `/powerline` toggles enabled and calls `setupCustomEditor(ctx)`.
+After `/powerline` toggles enabled and calls `setupCustomEditor(ctx)`, call both:
+
+```ts
+subagentStatus.start(ctx.sessionManager?.getSessionId?.());
+subagentStatus.scanNow();
+```
+
+After `/powerline` toggles disabled and clears custom UI, call:
+
+```ts
+subagentStatus.dispose();
+```
+
+`dispose()` must make event handlers no-op until the next `start()` so background event-bus subscriptions cannot update hidden/disabled Powerline state.
 
 - [ ] **Step 4: Subscribe to async subagent event-bus events**
 
@@ -636,7 +688,7 @@ const subagentEventUnsubscribes = [
 ];
 ```
 
-On shutdown and `/powerline` disable, unsubscribe only on full extension disposal if the API requires it. If event subscriptions should live for the extension lifetime, do not unsubscribe on ordinary session switch; rely on `subagentStatus.dispose()` to clear session-local state. Confirm `pi.events.on` returns an unsubscribe function as `pi-subagents` assumes.
+Event subscriptions may live for the extension lifetime, but handlers must become no-ops while the controller is disposed. On extension shutdown/reload, call every unsubscribe function returned by `pi.events.on` if the API provides one. On ordinary session switch or `/powerline` disable, `subagentStatus.dispose()` is sufficient only if it clears state, stops timers, and marks the controller inactive so later event-bus payloads are ignored until `start()`.
 
 - [ ] **Step 5: Subscribe to foreground tool lifecycle events**
 
