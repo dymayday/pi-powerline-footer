@@ -2,7 +2,7 @@
 
 Date: 2026-06-23
 Repo: `pi-powerline-footer`
-Status: Draft for spec review
+Status: Draft, spec review iteration 2
 
 ## Problem
 
@@ -49,11 +49,13 @@ The `subagents` Powerline segment should render examples like:
 - `✗ subagents failed · reviewer`
 - `✓ subagents complete · worker`
 
-Completed/failed/paused summaries should remain visible briefly, then clear unless another subagent run is active.
+Completed/failed/paused summaries should remain visible for `TERMINAL_RETENTION_MS` (default `10_000`) after the terminal event, then clear unless another subagent run is active.
 
 When there are multiple active runs, prefer an aggregate:
 
-- `⠋ subagents 2 running · 1 blocked`
+- `⠋ subagents 2 running · 1 attention`
+
+Use `attention` rather than `blocked` in user-facing text because `pi-subagents` exposes `activityState: "needs_attention"`, not a formal `blocked` lifecycle state.
 
 ## Architecture
 
@@ -68,7 +70,7 @@ Likely files:
 - `presets.ts` — decide which presets include `subagents` by default.
 - Tests under `tests/`.
 
-Initial implementation should be mostly Powerline-side. Only change `pi-subagents` if current public events/tool updates are insufficient.
+Initial implementation should be mostly Powerline-side. Only change `pi-subagents` if current public events/tool updates are insufficient. Do not add a runtime dependency or static import from `pi-subagents`; this package must keep working when `pi-subagents` is absent.
 
 ## Data sources
 
@@ -81,20 +83,26 @@ Use existing `pi-subagents` surfaces:
   - `subagent:async-complete`
   - `subagent:control-event` if available
 - Status files:
-  - temp root: `os.tmpdir()/pi-subagents-<scope>/async-subagent-runs/<runId>/status.json`
+  - temp root pattern: `os.tmpdir()/pi-subagents-*/async-subagent-runs/<runId>/status.json`
   - each `status.json` includes mode, state, current step, per-step agent/status/tool/activity fields.
 
-The status layer should track started async run IDs and poll their status files while active. Polling should be throttled and stopped when no tracked runs remain.
+Implementation requirements:
+
+- Use `asyncDir` from `subagent:async-started` when the event provides it.
+- Also scan `os.tmpdir()` on `session_start`, `/reload`, and Powerline enable for active `pi-subagents-* / async-subagent-runs/*/status.json` files. This catches runs that started before Powerline loaded, load-order races, and `/reload` during active async work.
+- Prefer status files whose `sessionId` matches the current Pi session when available. If `sessionId` is absent, include only `state: "queued" | "running"` statuses updated within `STALE_STATUS_MS` (default `30_000`) to avoid showing old unrelated work.
+- Poll tracked active async runs every `ASYNC_POLL_INTERVAL_MS` (default `1_000`). Stop polling when there are no tracked active runs and no retained terminal summary.
 
 ### Sync/foreground runs
 
 Listen to Pi tool lifecycle events for `subagent`:
 
-- `tool_execution_start` starts foreground status.
-- `tool_execution_update` reads `partialResult.details` from the subagent tool to update progress.
+- `tool_execution_start` starts foreground status when `event.toolName === "subagent"`.
+- `tool_execution_update` should be used only if Pi exposes a partial tool result payload with the current `pi-subagents` `Details` shape. The implementation must first inspect/log the actual event shape in the installed Pi runtime and then read the exact documented field from that runtime.
+- If `tool_execution_update` does not expose partial details, add a small public foreground progress publisher in `pi-subagents` (for example an event-bus update or status setter) and consume that instead of guessing at an internal field.
 - `tool_execution_end` marks completion/failure and schedules clear.
 
-This should make foreground subagent advancement visible while the parent turn is blocked.
+This should make foreground subagent advancement visible while the parent turn is blocked. The minimum acceptable foreground behavior is start/end visibility; live step/tool detail is required only if exposed by Pi or by the small `pi-subagents` publisher.
 
 ## State model
 
@@ -115,39 +123,46 @@ interface SubagentRunSummary {
   id: string;
   source: "foreground" | "async";
   mode: "single" | "parallel" | "chain";
-  state: "queued" | "running" | "complete" | "failed" | "paused" | "needs_attention";
+  state: "queued" | "running" | "complete" | "failed" | "paused";
+  activityState?: "active_long_running" | "needs_attention";
   activeAgent?: string;
+  /** zero-based internally when copied from pi-subagents; display as currentStep + 1 */
   currentStep?: number;
   totalSteps?: number;
   currentTool?: string;
   currentPath?: string;
   runningCount?: number;
-  blockedCount?: number;
+  /** count of runs/steps where activityState === "needs_attention" */
+  attentionCount?: number;
   updatedAt: number;
 }
 ```
+
+`needs_attention` is an activity state, not a lifecycle state. Formatting may promote it visually above lifecycle state, but the normalized model must keep it separate.
 
 ## Formatting rules
 
 Priority order:
 
-1. Any `needs_attention` or blocked state.
+1. Any run or step with `activityState === "needs_attention"`.
 2. Active foreground run.
 3. Active async runs.
-4. Most recent terminal summary during short retention window.
+4. Most recent terminal summary during `TERMINAL_RETENTION_MS`.
 5. Hidden.
 
 Width discipline:
 
 - Use terse labels.
 - Prefer aggregate display over listing many agents.
-- Let the existing Powerline segment truncation/composition handle final width, but keep source strings short.
+- The formatter must cap its own output; do not rely on Powerline layout to truncate individual segment content because the current responsive layout keeps or drops whole segments.
+- Default `MAX_SEGMENT_VISIBLE_WIDTH` is `48` cells. Truncate agent names, tool names, and paths before joining the final segment. Preserve the leading status glyph and `subagents` label when truncating.
+- Add narrow-width tests for long agent names, long tool arguments, and long paths.
 
 ## Preset behavior
 
-The `subagents` segment already appears in `full` and `nerd` presets. Consider adding it to `default` because the user-visible problem happened in normal usage, but keep the segment hidden when no status exists.
+The `subagents` segment already appears in `full` and `nerd` presets. Add it to the `default` preset because the user-visible problem happened in normal usage. Keep the segment hidden when no status exists, so idle users do not lose space.
 
-Recommended default preset left segments:
+Required default preset left segments:
 
 ```ts
 ["model", "thinking", "shell_mode", "path", "git", "subagents", "context_pct", "cache_read", "cost"]
@@ -156,8 +171,9 @@ Recommended default preset left segments:
 ## Error handling
 
 - If `pi-subagents` is not installed or no events appear, segment stays hidden.
-- If an async status file is missing or malformed, keep the start summary briefly, then degrade to `subagents running` or clear when stale.
-- If polling fails repeatedly, stop polling that run and surface no noisy error to the user.
+- If an async status file is missing, keep the last known/start summary for `MISSING_STATUS_GRACE_MS` (default `3_000`), then clear that run if no status appears.
+- If an async status file is malformed, ignore that read. After `MAX_STATUS_READ_FAILURES` consecutive failures (default `3`), stop tracking that run and surface no noisy error to the user.
+- If an existing status file is older than `STALE_STATUS_MS` (default `30_000`) and has no current-session match, do not show it.
 - Never throw from render paths; render hidden on unexpected state.
 - Clear timers/listeners on `/reload`, session shutdown, or `/powerline` disable.
 
@@ -166,18 +182,24 @@ Recommended default preset left segments:
 Unit tests:
 
 - Format single async running summary.
-- Format foreground running summary from tool updates.
-- Prioritize needs-attention over normal running.
-- Aggregate multiple async runs.
+- Format foreground running summary from tool updates or fallback start/end events.
+- Prioritize `activityState === "needs_attention"` over normal running.
+- Aggregate multiple async runs and display `attentionCount`.
+- Convert zero-based `currentStep` to one-based display.
+- Truncate long agent/tool/path values to `MAX_SEGMENT_VISIBLE_WIDTH`.
 - Hide when idle/stale.
 - Segment hidden when status provider returns no state.
 
 Integration-ish tests with mocked extension APIs:
 
-- `subagent:async-started` creates visible segment.
+- Startup/session-start scan picks up active current-session async status files.
+- `subagent:async-started` with `asyncDir` creates visible segment.
 - status file update changes step/tool display.
-- `subagent:async-complete` shows completion briefly, then clears.
-- `tool_execution_start/update/end` updates foreground segment.
+- `subagent:async-complete` shows completion for `TERMINAL_RETENTION_MS`, then clears with fake timers.
+- missing status clears after `MISSING_STATUS_GRACE_MS` with fake timers.
+- malformed status stops tracking after `MAX_STATUS_READ_FAILURES`.
+- `tool_execution_start/update/end` updates foreground segment when update details are available.
+- `tool_execution_start/end` still shows useful foreground start/end status when partial update details are unavailable.
 - cleanup removes timers/listeners.
 
 Manual verification:
@@ -190,7 +212,7 @@ Manual verification:
 
 ## Risks
 
-- `pi-subagents` event payloads are package-internal strings, not formally documented as a public API. Mitigation: use defensive parsing and status-file fallback.
+- `pi-subagents` event payloads are package-internal strings, not formally documented as a public API. Mitigation: use defensive parsing, status-file fallback, no static imports, and graceful hidden state when absent.
 - Powerline fixed-editor mode has custom rendering; segment updates must use existing `requestStatusRender()` scheduler rather than direct rendering.
 - Sync foreground updates depend on `tool_execution_update` partial details. If unavailable, show only start/end state and consider a small `pi-subagents` publisher change later.
 
