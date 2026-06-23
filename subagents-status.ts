@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export const ASYNC_POLL_INTERVAL_MS = 1_000;
@@ -49,6 +50,100 @@ export interface SubagentPowerlineStatus {
 export interface FormatSubagentPowerlineStatusOptions {
   now?: number;
   maxWidth?: number;
+}
+
+export interface AsyncStatusScanDeps {
+  tmpDir: string;
+  sessionId?: string;
+  now?: number;
+  listDirs(path: string): string[];
+  exists(path: string): boolean;
+  readFile(path: string): string;
+  statMtimeMs(path: string): number;
+}
+
+export interface NormalizeAsyncStatusOptions {
+  now?: number;
+  mtimeMs?: number;
+  sessionId?: string;
+}
+
+export function normalizeAsyncStatus(
+  raw: unknown,
+  asyncDir: string,
+  options: NormalizeAsyncStatusOptions = {},
+): SubagentRunSummary | null {
+  if (!isRecord(raw)) return null;
+
+  const mode = normalizeMode(raw.mode);
+  const state = normalizeLifecycleState(raw.state);
+  if (!mode || !state) return null;
+
+  const statusSessionId = stringValue(raw.sessionId);
+  if (options.sessionId && statusSessionId && statusSessionId !== options.sessionId) {
+    return null;
+  }
+
+  const now = options.now ?? Date.now();
+  const mtimeMs = options.mtimeMs ?? numberValue(raw.lastUpdate) ?? numberValue(raw.startedAt) ?? now;
+  if (!statusSessionId) {
+    if (!isActiveState(state)) return null;
+    if (now - mtimeMs > STALE_STATUS_MS) return null;
+  }
+
+  const steps = Array.isArray(raw.steps) ? raw.steps.filter(isRecord) : [];
+  const currentStep = integerValue(raw.currentStep);
+  const activeStep = pickActiveStep(steps, currentStep);
+  const attentionStep = steps.find((step) => normalizeActivityState(step.activityState) === "needs_attention");
+  const detailStep = attentionStep ?? activeStep;
+  const activityState = normalizeActivityState(attentionStep?.activityState) ?? normalizeActivityState(activeStep?.activityState) ?? normalizeActivityState(raw.activityState);
+  const activeAgent = stringValue(detailStep?.agent) ?? firstString(raw.agents) ?? stringValue(raw.agent);
+  const currentTool = stringValue(detailStep?.currentTool) ?? stringValue(raw.currentTool);
+  const currentPath = stringValue(detailStep?.currentPath) ?? stringValue(raw.currentPath);
+  const computedTotalSteps = totalSteps(raw, steps);
+
+  return {
+    id: stringValue(raw.runId) ?? stringValue(raw.id) ?? path.basename(asyncDir),
+    source: "async",
+    mode,
+    state,
+    ...(activityState ? { activityState } : {}),
+    ...(activeAgent ? { activeAgent } : {}),
+    ...(typeof currentStep === "number" ? { currentStep } : {}),
+    ...(typeof computedTotalSteps === "number" ? { totalSteps: computedTotalSteps } : {}),
+    ...(currentTool ? { currentTool } : {}),
+    ...(currentPath ? { currentPath } : {}),
+    runningCount: runningStepCount(raw, steps),
+    attentionCount: attentionStepCount(raw, steps),
+    updatedAt: numberValue(raw.lastUpdate) ?? numberValue(raw.lastActivityAt) ?? mtimeMs,
+  };
+}
+
+export function scanAsyncStatusFiles(deps: AsyncStatusScanDeps): SubagentRunSummary[] {
+  const now = deps.now ?? Date.now();
+  const runs: SubagentRunSummary[] = [];
+
+  for (const tmpEntry of safeListDirs(deps.tmpDir, deps.listDirs)) {
+    if (!tmpEntry.startsWith("pi-subagents-")) continue;
+    const asyncRunsDir = path.join(deps.tmpDir, tmpEntry, "async-subagent-runs");
+    for (const runDirName of safeListDirs(asyncRunsDir, deps.listDirs)) {
+      const asyncDir = path.join(asyncRunsDir, runDirName);
+      const statusPath = path.join(asyncDir, "status.json");
+      if (!safeExists(statusPath, deps.exists)) continue;
+
+      try {
+        const mtimeMs = deps.statMtimeMs(statusPath);
+        const raw = JSON.parse(deps.readFile(statusPath)) as unknown;
+        const normalized = normalizeAsyncStatus(raw, asyncDir, { now, mtimeMs, sessionId: deps.sessionId });
+        if (normalized) runs.push(normalized);
+      } catch {
+        // Malformed or disappearing status files are ignored here. The controller
+        // tracks repeated read failures once polling is active.
+      }
+    }
+  }
+
+  return runs.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function formatSubagentPowerlineStatus(
@@ -185,4 +280,91 @@ function sumCounts(runs: SubagentRunSummary[], field: "attentionCount" | "runnin
 function positiveInteger(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
   return Math.floor(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function integerValue(value: unknown): number | undefined {
+  const n = numberValue(value);
+  return typeof n === "number" ? Math.max(0, Math.floor(n)) : undefined;
+}
+
+function firstString(value: unknown): string | undefined {
+  return Array.isArray(value) ? value.find((item): item is string => typeof item === "string" && item.length > 0) : undefined;
+}
+
+function normalizeMode(value: unknown): SubagentMode | null {
+  if (value === "single" || value === "parallel" || value === "chain") return value;
+  return null;
+}
+
+function normalizeLifecycleState(value: unknown): SubagentLifecycleState | null {
+  if (value === "queued" || value === "running" || value === "complete" || value === "failed" || value === "paused") {
+    return value;
+  }
+  if (value === "completed") return "complete";
+  return null;
+}
+
+function normalizeActivityState(value: unknown): SubagentActivityState | undefined {
+  if (value === "active_long_running" || value === "needs_attention") return value;
+  return undefined;
+}
+
+function isActiveState(state: SubagentLifecycleState): boolean {
+  return state === "queued" || state === "running";
+}
+
+function pickActiveStep(
+  steps: Array<Record<string, unknown>>,
+  currentStep: number | undefined,
+): Record<string, unknown> | undefined {
+  if (typeof currentStep === "number" && currentStep >= 0 && currentStep < steps.length) {
+    return steps[currentStep];
+  }
+  return steps.find((step) => normalizeLifecycleState(step.status) === "running") ?? steps.find((step) => normalizeLifecycleState(step.status) === "queued");
+}
+
+function totalSteps(raw: Record<string, unknown>, steps: Array<Record<string, unknown>>): number | undefined {
+  const explicitTotal = integerValue(raw.chainStepCount) ?? integerValue(raw.stepsTotal);
+  if (typeof explicitTotal === "number" && explicitTotal > 0) return explicitTotal;
+  return steps.length > 0 ? steps.length : undefined;
+}
+
+function runningStepCount(raw: Record<string, unknown>, steps: Array<Record<string, unknown>>): number {
+  const explicit = integerValue(raw.runningSteps);
+  if (typeof explicit === "number") return explicit;
+  return steps.filter((step) => normalizeLifecycleState(step.status) === "running").length;
+}
+
+function attentionStepCount(raw: Record<string, unknown>, steps: Array<Record<string, unknown>>): number {
+  const explicit = integerValue(raw.attentionCount);
+  if (typeof explicit === "number") return explicit;
+  return steps.filter((step) => normalizeActivityState(step.activityState) === "needs_attention").length + (normalizeActivityState(raw.activityState) === "needs_attention" ? 1 : 0);
+}
+
+function safeListDirs(dir: string, listDirs: (path: string) => string[]): string[] {
+  try {
+    return listDirs(dir);
+  } catch {
+    return [];
+  }
+}
+
+function safeExists(candidatePath: string, exists: (path: string) => boolean): boolean {
+  try {
+    return exists(candidatePath);
+  } catch {
+    return false;
+  }
 }

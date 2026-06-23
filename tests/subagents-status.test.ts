@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatSubagentPowerlineStatus } from "../subagents-status.ts";
+import { formatSubagentPowerlineStatus, scanAsyncStatusFiles, STALE_STATUS_MS } from "../subagents-status.ts";
 
 test("formats single async running step with one-based display", () => {
   const formatted = formatSubagentPowerlineStatus({
@@ -58,4 +58,129 @@ test("truncates long foreground content", () => {
   assert.equal(formatted.visible, true);
   assert.ok(formatted.content.startsWith("⠋ subagents foreground"));
   assert.ok(formatted.visibleWidth <= 48);
+});
+
+test("scanAsyncStatusFiles picks current-session active runs", () => {
+  const files = new Map<string, string>();
+  const statusPath = "/tmp/pi-subagents-test/async-subagent-runs/run-1/status.json";
+  files.set(statusPath, JSON.stringify({
+    runId: "run-1",
+    sessionId: "session-a",
+    mode: "chain",
+    state: "running",
+    startedAt: 1_000,
+    lastUpdate: 2_000,
+    currentStep: 1,
+    chainStepCount: 3,
+    steps: [
+      { agent: "scout", status: "complete" },
+      { agent: "worker", status: "running", currentTool: "read", currentPath: "/tmp/src.ts" },
+      { agent: "reviewer", status: "pending" },
+    ],
+  }));
+
+  const runs = scanAsyncStatusFiles({
+    tmpDir: "/tmp",
+    sessionId: "session-a",
+    now: 2_500,
+    readFile: (path) => files.get(path)!,
+    statMtimeMs: () => 2_000,
+    listDirs: (path) => path === "/tmp" ? ["pi-subagents-test"] : path.endsWith("async-subagent-runs") ? ["run-1"] : [],
+    exists: (path) => path === statusPath,
+  });
+
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].activeAgent, "worker");
+  assert.equal(runs[0].currentStep, 1);
+  assert.equal(runs[0].totalSteps, 3);
+  assert.equal(runs[0].currentTool, "read");
+  assert.equal(runs[0].currentPath, "/tmp/src.ts");
+});
+
+test("scanAsyncStatusFiles ignores stale no-session status files", () => {
+  const files = new Map<string, string>();
+  const statusPath = "/tmp/pi-subagents-test/async-subagent-runs/run-1/status.json";
+  files.set(statusPath, JSON.stringify({
+    runId: "run-1",
+    mode: "single",
+    state: "running",
+    startedAt: 1_000,
+    lastUpdate: 2_000,
+    steps: [{ agent: "worker", status: "running" }],
+  }));
+
+  const now = 100_000;
+  const runs = scanAsyncStatusFiles({
+    tmpDir: "/tmp",
+    now,
+    readFile: (path) => files.get(path)!,
+    statMtimeMs: () => now - STALE_STATUS_MS - 1,
+    listDirs: (path) => path === "/tmp" ? ["pi-subagents-test"] : path.endsWith("async-subagent-runs") ? ["run-1"] : [],
+    exists: (path) => path === statusPath,
+  });
+
+  assert.deepEqual(runs, []);
+});
+
+test("scanAsyncStatusFiles ignores other-session runs", () => {
+  const files = new Map<string, string>();
+  const statusPath = "/tmp/pi-subagents-test/async-subagent-runs/run-1/status.json";
+  files.set(statusPath, JSON.stringify({
+    runId: "run-1",
+    sessionId: "session-b",
+    mode: "single",
+    state: "running",
+    startedAt: 1_000,
+    lastUpdate: 2_000,
+    steps: [{ agent: "worker", status: "running" }],
+  }));
+
+  const runs = scanAsyncStatusFiles({
+    tmpDir: "/tmp",
+    sessionId: "session-a",
+    now: 2_500,
+    readFile: (path) => files.get(path)!,
+    statMtimeMs: () => 2_000,
+    listDirs: (path) => path === "/tmp" ? ["pi-subagents-test"] : path.endsWith("async-subagent-runs") ? ["run-1"] : [],
+    exists: (path) => path === statusPath,
+  });
+
+  assert.deepEqual(runs, []);
+});
+
+test("scanAsyncStatusFiles promotes needs_attention from non-current steps", () => {
+  const files = new Map<string, string>();
+  const statusPath = "/tmp/pi-subagents-test/async-subagent-runs/run-1/status.json";
+  files.set(statusPath, JSON.stringify({
+    runId: "run-1",
+    sessionId: "session-a",
+    mode: "parallel",
+    state: "running",
+    startedAt: 1_000,
+    lastUpdate: 2_000,
+    currentStep: 0,
+    steps: [
+      { agent: "worker", status: "running" },
+      { agent: "reviewer", status: "running", activityState: "needs_attention", currentTool: "bash" },
+    ],
+  }));
+
+  const runs = scanAsyncStatusFiles({
+    tmpDir: "/tmp",
+    sessionId: "session-a",
+    now: 2_500,
+    readFile: (path) => files.get(path)!,
+    statMtimeMs: () => 2_000,
+    listDirs: (path) => path === "/tmp" ? ["pi-subagents-test"] : path.endsWith("async-subagent-runs") ? ["run-1"] : [],
+    exists: (path) => path === statusPath,
+  });
+
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].activityState, "needs_attention");
+  assert.equal(runs[0].activeAgent, "reviewer");
+  assert.equal(runs[0].attentionCount, 1);
+
+  const formatted = formatSubagentPowerlineStatus({ foreground: null, asyncRuns: runs, lastTerminal: null });
+  assert.equal(formatted.tone, "attention");
+  assert.equal(formatted.content, "⚠ subagents needs attention · reviewer");
 });
