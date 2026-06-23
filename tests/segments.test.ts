@@ -24,6 +24,7 @@ function makeContext(overrides: Partial<SegmentContext> = {}): SegmentContext {
     extensionStatuses: new Map(),
     hiddenExtensionStatusKeys: new Set(),
     customItemsById: new Map(),
+    subagentsStatus: null,
     options: {},
     theme: { fg: (_color: string, text: string) => text },
     colors: {},
@@ -55,4 +56,27 @@ test("cost segment falls back to subscription marker when no cost is reported", 
 
   assert.equal(rendered.visible, true);
   assert.equal(rendered.content, "(sub)");
+});
+
+test("subagents segment is hidden with no status", () => {
+  const rendered = renderSegment("subagents", makeContext({ subagentsStatus: null }));
+
+  assert.equal(rendered.visible, false);
+});
+
+test("subagents segment renders compact status with tone color", () => {
+  const rendered = renderSegment(
+    "subagents",
+    makeContext({
+      subagentsStatus: {
+        visible: true,
+        content: "⠋ subagents 1 async · worker",
+        tone: "running",
+        visibleWidth: 29,
+      },
+    }),
+  );
+
+  assert.equal(rendered.visible, true);
+  assert.equal(rendered.content, "⠋ subagents 1 async · worker");
 });

@@ -103,6 +103,13 @@ export interface CustomStatusItem {
   excludeFromExtensionStatuses: boolean;
 }
 
+export interface SubagentPowerlineStatus {
+  visible: boolean;
+  content: string;
+  tone: "running" | "attention" | "success" | "error" | "paused";
+  visibleWidth: number;
+}
+
 // Preset definition
 export interface PresetDef {
   leftSegments: BuiltinStatusLineSegmentId[];
@@ -171,6 +178,7 @@ export interface SegmentContext {
   extensionStatuses: ReadonlyMap<string, string>;
   hiddenExtensionStatusKeys: ReadonlySet<string>;
   customItemsById: ReadonlyMap<string, CustomStatusItem>;
+  subagentsStatus?: SubagentPowerlineStatus | null;
   
   // Options
   options: StatusLineSegmentOptions;

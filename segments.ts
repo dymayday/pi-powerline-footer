@@ -1,6 +1,5 @@
 import { hostname as osHostname } from "node:os";
 import { basename } from "node:path";
-import { visibleWidth } from "@earendil-works/pi-tui";
 import type { BuiltinStatusLineSegmentId, RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.ts";
 import { normalizeCompactExtensionStatus, normalizeExtensionStatusValue } from "./powerline-config.ts";
 import { fg, rainbow, applyColor } from "./theme.ts";
@@ -213,11 +212,22 @@ const thinkingSegment: StatusLineSegment = {
 
 const subagentsSegment: StatusLineSegment = {
   id: "subagents",
-  render() {
-    // Note: pi-mono doesn't have subagent tracking built-in
-    // This would require extension state management
-    // For now, return not visible
-    return { content: "", visible: false };
+  render(ctx) {
+    const status = ctx.subagentsStatus;
+    if (!status?.visible || !status.content) return { content: "", visible: false };
+
+    const colorByTone = {
+      running: "accent",
+      attention: "warning",
+      success: "success",
+      error: "error",
+      paused: "warning",
+    } as const;
+
+    return {
+      content: applyColor(ctx.theme, colorByTone[status.tone], status.content),
+      visible: true,
+    };
   },
 };
 
@@ -475,8 +485,12 @@ function renderCustomSegment(id: `custom:${string}`, ctx: SegmentContext): Rende
   return { content, visible: true };
 }
 
+function isCustomSegmentId(id: StatusLineSegmentId): id is `custom:${string}` {
+  return id.startsWith("custom:");
+}
+
 export function renderSegment(id: StatusLineSegmentId, ctx: SegmentContext): RenderedSegment {
-  if (id.startsWith("custom:")) {
+  if (isCustomSegmentId(id)) {
     return renderCustomSegment(id, ctx);
   }
 
