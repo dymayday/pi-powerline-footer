@@ -198,7 +198,7 @@ test("powerline fallback routing rejects reserved Pi shortcut defaults", () => {
   assert.doesNotMatch(source, /RESERVED_TUI_KEYBINDING_IDS/);
   assert.match(source, /const EXTRA_RESERVED_SHORTCUTS = \["alt\+s"\] as const/);
   assert.match(source, /const SHORTCUT_MODIFIER_ORDER = \["ctrl", "alt", "super", "shift"\] as const/);
-  assert.match(source, /const SHORTCUT_MODIFIERS = new Set\(SHORTCUT_MODIFIER_ORDER\)/);
+  assert.match(source, /const SHORTCUT_MODIFIERS(?:: ReadonlySet<string>)? = new Set(?:<string>)?\(SHORTCUT_MODIFIER_ORDER\)/);
   assert.match(source, /modifierRank\.get\(a\)/);
   assert.match(source, /configuredToggleShortcut && !reservedShortcuts\(\)\.has\(shortcutUsageKey\(configuredToggleShortcut\)\)/);
 });
