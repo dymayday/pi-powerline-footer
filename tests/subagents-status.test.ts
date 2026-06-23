@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { test } from "node:test";
-import { formatSubagentPowerlineStatus, scanAsyncStatusFiles, STALE_STATUS_MS } from "../subagents-status.ts";
+import {
+  createSubagentStatusController,
+  formatSubagentPowerlineStatus,
+  MAX_STATUS_READ_FAILURES,
+  MISSING_STATUS_GRACE_MS,
+  scanAsyncStatusFiles,
+  STALE_STATUS_MS,
+  TERMINAL_RETENTION_MS,
+} from "../subagents-status.ts";
 
 test("formats single async running step with one-based display", () => {
   const formatted = formatSubagentPowerlineStatus({
@@ -183,4 +194,260 @@ test("scanAsyncStatusFiles promotes needs_attention from non-current steps", () 
   const formatted = formatSubagentPowerlineStatus({ foreground: null, asyncRuns: runs, lastTerminal: null });
   assert.equal(formatted.tone, "attention");
   assert.equal(formatted.content, "⚠ subagents needs attention · reviewer");
+});
+
+test("controller handles async start and completion retention", () => {
+  let now = 1_000;
+  let renderRequests = 0;
+  const controller = createSubagentStatusController({
+    getNow: () => now,
+    requestRender: () => { renderRequests++; },
+    scanAsyncRuns: () => [],
+  });
+
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  assert.match(controller.getPowerlineStatus().content, /worker/);
+
+  controller.handleAsyncComplete({ runId: "run-1", success: true });
+  assert.match(controller.getPowerlineStatus().content, /complete/);
+
+  now += TERMINAL_RETENTION_MS + 1;
+  controller.prune();
+  assert.equal(controller.getPowerlineStatus().visible, false);
+  assert.ok(renderRequests >= 2);
+});
+
+test("controller accepts id, runId, and asyncId completion ids", () => {
+  const completionPayloads = [
+    { id: "run-id", success: true },
+    { runId: "run-id", success: true },
+    { asyncId: "run-id", success: true },
+  ];
+
+  for (const payload of completionPayloads) {
+    const controller = createSubagentStatusController({ scanAsyncRuns: () => [] });
+    controller.start("session-a");
+    controller.handleAsyncStarted({ id: "run-id", asyncDir: "/tmp/run-id", mode: "single", agent: "worker" });
+    controller.handleAsyncComplete(payload);
+    assert.equal(controller.getPowerlineStatus().tone, "success");
+  }
+});
+
+test("controller preserves paused async completion state", () => {
+  const controller = createSubagentStatusController({ scanAsyncRuns: () => [] });
+  controller.start("session-a");
+  controller.handleAsyncStarted({ asyncId: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  controller.handleAsyncComplete({ runId: "run-1", state: "paused" });
+  const status = controller.getPowerlineStatus();
+  assert.equal(status.tone, "paused");
+  assert.match(status.content, /paused/);
+});
+
+test("controller automatically clears retained terminal summary on timer tick", () => {
+  let now = 1_000;
+  let intervalCallback: (() => void) | null = null;
+  let cleared = false;
+  const controller = createSubagentStatusController({
+    getNow: () => now,
+    scanAsyncRuns: () => [],
+    setIntervalFn: (callback: () => void) => {
+      intervalCallback = callback;
+      return 1 as never;
+    },
+    clearIntervalFn: () => { cleared = true; },
+  });
+
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  controller.handleAsyncComplete({ id: "run-1", success: true });
+  assert.equal(controller.getPowerlineStatus().visible, true);
+
+  now += TERMINAL_RETENTION_MS + 1;
+  const tick = intervalCallback as (() => void) | null;
+  assert.ok(tick);
+  tick();
+
+  assert.equal(controller.getPowerlineStatus().visible, false);
+  assert.equal(cleared, true);
+});
+
+test("controller clears missing async status after grace period", () => {
+  let now = 1_000;
+  const controller = createSubagentStatusController({
+    getNow: () => now,
+    scanAsyncRuns: () => [],
+  });
+
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  controller.scanNow();
+  assert.equal(controller.getPowerlineStatus().visible, true);
+
+  now += MISSING_STATUS_GRACE_MS + 1;
+  controller.scanNow();
+  assert.equal(controller.getPowerlineStatus().visible, false);
+});
+
+test("controller clears malformed status after max read failures", () => {
+  const controller = createSubagentStatusController({
+    scanAsyncRuns: () => { throw new Error("malformed status"); },
+  });
+
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+
+  for (let i = 0; i < MAX_STATUS_READ_FAILURES - 1; i++) {
+    controller.scanNow();
+    assert.equal(controller.getPowerlineStatus().visible, true);
+  }
+
+  controller.scanNow();
+  assert.equal(controller.getPowerlineStatus().visible, false);
+});
+
+test("controller handles nested control event payloads with outer run id", () => {
+  const controller = createSubagentStatusController({ scanAsyncRuns: () => [] });
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+
+  controller.handleControlEvent({ runId: "run-1", event: { type: "needs_attention", agent: "reviewer" } });
+
+  const status = controller.getPowerlineStatus();
+  assert.equal(status.tone, "attention");
+  assert.match(status.content, /reviewer/);
+});
+
+test("controller clears repeated scanned terminal status using original terminal time", () => {
+  let now = 1_000;
+  let intervalCallback: (() => void) | null = null;
+  let cleared = false;
+  const completedRun = {
+    id: "run-1",
+    source: "async" as const,
+    mode: "single" as const,
+    state: "complete" as const,
+    activeAgent: "worker",
+    updatedAt: 1_000,
+  };
+  const controller = createSubagentStatusController({
+    getNow: () => now,
+    scanAsyncRuns: () => [completedRun],
+    setIntervalFn: (callback: () => void) => {
+      intervalCallback = callback;
+      return 1 as never;
+    },
+    clearIntervalFn: () => { cleared = true; },
+  });
+
+  controller.start("session-a");
+  controller.scanNow();
+  assert.equal(controller.getPowerlineStatus().visible, true);
+
+  now += TERMINAL_RETENTION_MS + 1;
+  const tick = intervalCallback as (() => void) | null;
+  assert.ok(tick);
+  tick();
+
+  assert.equal(controller.getPowerlineStatus().visible, false);
+  assert.equal(cleared, true);
+});
+
+test("controller clears malformed default status files after max read failures", () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "powerline-subagents-"));
+  try {
+    const asyncDir = path.join(tmpRoot, "pi-subagents-test", "async-subagent-runs", "run-1");
+    fs.mkdirSync(asyncDir, { recursive: true });
+    fs.writeFileSync(path.join(asyncDir, "status.json"), "{not-json", "utf8");
+
+    const controller = createSubagentStatusController({ getTmpDir: () => tmpRoot });
+    controller.start("session-a");
+    controller.handleAsyncStarted({ id: "run-1", asyncDir, mode: "single", agent: "worker" });
+
+    for (let i = 0; i < MAX_STATUS_READ_FAILURES - 1; i++) {
+      controller.scanNow();
+      assert.equal(controller.getPowerlineStatus().visible, true);
+    }
+
+    controller.scanNow();
+    assert.equal(controller.getPowerlineStatus().visible, false);
+    controller.dispose();
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("controller clears malformed default-discovered status files after max read failures", () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "powerline-subagents-"));
+  try {
+    const asyncDir = path.join(tmpRoot, "pi-subagents-test", "async-subagent-runs", "run-1");
+    const statusPath = path.join(asyncDir, "status.json");
+    fs.mkdirSync(asyncDir, { recursive: true });
+    fs.writeFileSync(statusPath, JSON.stringify({
+      runId: "run-1",
+      sessionId: "session-a",
+      mode: "single",
+      state: "running",
+      startedAt: 1_000,
+      lastUpdate: 2_000,
+      steps: [{ agent: "worker", status: "running" }],
+    }), "utf8");
+
+    const controller = createSubagentStatusController({ getTmpDir: () => tmpRoot });
+    controller.start("session-a");
+    controller.scanNow();
+    assert.equal(controller.getPowerlineStatus().visible, true);
+
+    fs.writeFileSync(statusPath, "{not-json", "utf8");
+    for (let i = 0; i < MAX_STATUS_READ_FAILURES - 1; i++) {
+      controller.scanNow();
+      assert.equal(controller.getPowerlineStatus().visible, true);
+    }
+
+    controller.scanNow();
+    assert.equal(controller.getPowerlineStatus().visible, false);
+    controller.dispose();
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("controller handles foreground fallback lifecycle", () => {
+  const controller = createSubagentStatusController({ scanAsyncRuns: () => [] });
+  controller.start("session-a");
+
+  controller.handleForegroundStart({ args: { agent: "worker", mode: "single" } });
+  let status = controller.getPowerlineStatus();
+  assert.equal(status.visible, true);
+  assert.match(status.content, /foreground/);
+  assert.match(status.content, /worker/);
+
+  controller.handleForegroundUpdate({ unknown: true });
+  status = controller.getPowerlineStatus();
+  assert.match(status.content, /foreground/);
+
+  controller.handleForegroundEnd({ isError: false });
+  status = controller.getPowerlineStatus();
+  assert.equal(status.tone, "success");
+  assert.match(status.content, /complete/);
+});
+
+test("controller dispose clears timers and makes handlers no-op until restart", () => {
+  let clearCount = 0;
+  const controller = createSubagentStatusController({
+    scanAsyncRuns: () => [],
+    setIntervalFn: () => 1 as never,
+    clearIntervalFn: () => { clearCount++; },
+  });
+
+  controller.start("session-a");
+  controller.handleAsyncStarted({ id: "run-1", asyncDir: "/tmp/run-1", mode: "single", agent: "worker" });
+  assert.equal(controller.getPowerlineStatus().visible, true);
+
+  controller.dispose();
+  assert.equal(clearCount, 1);
+  assert.equal(controller.getPowerlineStatus().visible, false);
+
+  controller.handleAsyncStarted({ id: "run-2", asyncDir: "/tmp/run-2", mode: "single", agent: "worker" });
+  assert.equal(controller.getPowerlineStatus().visible, false);
 });

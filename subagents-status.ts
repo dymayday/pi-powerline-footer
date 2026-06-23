@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
@@ -68,6 +70,38 @@ export interface NormalizeAsyncStatusOptions {
   sessionId?: string;
 }
 
+type IntervalHandle = ReturnType<typeof setInterval>;
+
+export interface SubagentStatusController {
+  start(sessionId?: string): void;
+  dispose(): void;
+  scanNow(): void;
+  prune(): void;
+  getPowerlineStatus(): SubagentPowerlineStatus;
+  handleAsyncStarted(payload: unknown): void;
+  handleAsyncComplete(payload: unknown): void;
+  handleControlEvent(payload: unknown): void;
+  handleForegroundStart(event: unknown): void;
+  handleForegroundUpdate(event: unknown): void;
+  handleForegroundEnd(event: unknown): void;
+}
+
+export interface SubagentStatusControllerDeps {
+  getNow?: () => number;
+  getTmpDir?: () => string;
+  getSessionId?: () => string | undefined;
+  requestRender?: () => void;
+  setIntervalFn?: (callback: () => void, ms: number) => IntervalHandle;
+  clearIntervalFn?: (handle: IntervalHandle) => void;
+  scanAsyncRuns?: () => SubagentRunSummary[];
+}
+
+interface TrackedSubagentRun extends SubagentRunSummary {
+  asyncDir?: string;
+  missingSince?: number;
+  readFailures?: number;
+}
+
 export function normalizeAsyncStatus(
   raw: unknown,
   asyncDir: string,
@@ -119,9 +153,9 @@ export function normalizeAsyncStatus(
   };
 }
 
-export function scanAsyncStatusFiles(deps: AsyncStatusScanDeps): SubagentRunSummary[] {
+export function scanAsyncStatusFiles(deps: AsyncStatusScanDeps): Array<SubagentRunSummary & { asyncDir?: string }> {
   const now = deps.now ?? Date.now();
-  const runs: SubagentRunSummary[] = [];
+  const runs: Array<SubagentRunSummary & { asyncDir?: string }> = [];
 
   for (const tmpEntry of safeListDirs(deps.tmpDir, deps.listDirs)) {
     if (!tmpEntry.startsWith("pi-subagents-")) continue;
@@ -135,7 +169,7 @@ export function scanAsyncStatusFiles(deps: AsyncStatusScanDeps): SubagentRunSumm
         const mtimeMs = deps.statMtimeMs(statusPath);
         const raw = JSON.parse(deps.readFile(statusPath)) as unknown;
         const normalized = normalizeAsyncStatus(raw, asyncDir, { now, mtimeMs, sessionId: deps.sessionId });
-        if (normalized) runs.push(normalized);
+        if (normalized) runs.push({ ...normalized, asyncDir });
       } catch {
         // Malformed or disappearing status files are ignored here. The controller
         // tracks repeated read failures once polling is active.
@@ -144,6 +178,297 @@ export function scanAsyncStatusFiles(deps: AsyncStatusScanDeps): SubagentRunSumm
   }
 
   return runs.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function createSubagentStatusController(deps: SubagentStatusControllerDeps = {}): SubagentStatusController {
+  const asyncRuns = new Map<string, TrackedSubagentRun>();
+  const getNow = deps.getNow ?? (() => Date.now());
+  const setIntervalFn = deps.setIntervalFn ?? ((callback, ms) => setInterval(callback, ms));
+  const clearIntervalFn = deps.clearIntervalFn ?? ((handle) => clearInterval(handle));
+  let active = false;
+  let sessionId: string | undefined;
+  let foreground: SubagentRunSummary | null = null;
+  let lastTerminal: SubagentTerminalSummary | null = null;
+  let pollHandle: IntervalHandle | null = null;
+
+  function requestRender(): void {
+    deps.requestRender?.();
+  }
+
+  function activeAsyncRuns(): TrackedSubagentRun[] {
+    return [...asyncRuns.values()].filter((run) => isActiveState(run.state));
+  }
+
+  function hasRetainedTerminal(now = getNow()): boolean {
+    return Boolean(lastTerminal && now - lastTerminal.terminalAt <= TERMINAL_RETENTION_MS);
+  }
+
+  function ensurePolling(): void {
+    const shouldPoll = active && (activeAsyncRuns().length > 0 || hasRetainedTerminal());
+    if (shouldPoll && pollHandle === null) {
+      pollHandle = setIntervalFn(() => {
+        scanNow();
+        prune();
+      }, ASYNC_POLL_INTERVAL_MS);
+      unrefInterval(pollHandle);
+    } else if (!shouldPoll && pollHandle !== null) {
+      clearIntervalFn(pollHandle);
+      pollHandle = null;
+    }
+  }
+
+  function defaultScanAsyncRuns(): SubagentRunSummary[] {
+    const tmpDir = deps.getTmpDir?.() ?? os.tmpdir();
+    return scanAsyncStatusFiles({
+      tmpDir,
+      sessionId: sessionId ?? deps.getSessionId?.(),
+      now: getNow(),
+      listDirs: listDirectoryNames,
+      exists: fs.existsSync,
+      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+      statMtimeMs: (filePath) => fs.statSync(filePath).mtimeMs,
+    });
+  }
+
+  function recordScanFailure(id: string, run: TrackedSubagentRun): boolean {
+    run.readFailures = (run.readFailures ?? 0) + 1;
+    if (run.readFailures >= MAX_STATUS_READ_FAILURES) {
+      asyncRuns.delete(id);
+      return true;
+    }
+    return false;
+  }
+
+  function recordTerminalRun(run: SubagentRunSummary, terminalAt = run.updatedAt): boolean {
+    if (lastTerminal && terminalAt < lastTerminal.terminalAt) return false;
+    if (lastTerminal?.id === run.id && lastTerminal.state === run.state && lastTerminal.terminalAt === terminalAt) {
+      return false;
+    }
+    lastTerminal = { ...run, terminalAt };
+    return true;
+  }
+
+  function inspectTrackedStatusFile(id: string, run: TrackedSubagentRun, now: number): boolean | null {
+    if (deps.scanAsyncRuns || !run.asyncDir) return null;
+    const statusPath = path.join(run.asyncDir, "status.json");
+    if (!fs.existsSync(statusPath)) return null;
+
+    try {
+      const mtimeMs = fs.statSync(statusPath).mtimeMs;
+      const raw = JSON.parse(fs.readFileSync(statusPath, "utf8")) as unknown;
+      const normalized = normalizeAsyncStatus(raw, run.asyncDir, { now, mtimeMs, sessionId: sessionId ?? deps.getSessionId?.() });
+      if (!normalized) return recordScanFailure(id, run);
+      if (isActiveState(normalized.state)) {
+        asyncRuns.set(id, { ...run, ...normalized, missingSince: undefined, readFailures: 0 });
+      } else {
+        asyncRuns.delete(id);
+        recordTerminalRun(normalized);
+      }
+      return true;
+    } catch {
+      return recordScanFailure(id, run);
+    }
+  }
+
+  function scanNow(): void {
+    if (!active) return;
+    const now = getNow();
+    let scanned: SubagentRunSummary[];
+    try {
+      scanned = deps.scanAsyncRuns ? deps.scanAsyncRuns() : defaultScanAsyncRuns();
+    } catch {
+      let changed = false;
+      for (const [id, run] of asyncRuns) {
+        run.readFailures = (run.readFailures ?? 0) + 1;
+        if (run.readFailures >= MAX_STATUS_READ_FAILURES) {
+          asyncRuns.delete(id);
+          changed = true;
+        }
+      }
+      if (changed) requestRender();
+      ensurePolling();
+      return;
+    }
+
+    const seen = new Set<string>();
+    let changed = false;
+    for (const run of scanned) {
+      seen.add(run.id);
+      if (isActiveState(run.state)) {
+        const previous = asyncRuns.get(run.id);
+        asyncRuns.set(run.id, { ...previous, ...run, missingSince: undefined, readFailures: 0 });
+        changed = true;
+      } else {
+        asyncRuns.delete(run.id);
+        changed = recordTerminalRun(run) || changed;
+      }
+    }
+
+    for (const [id, run] of asyncRuns) {
+      if (seen.has(id) || !isActiveState(run.state)) continue;
+      const inspected = inspectTrackedStatusFile(id, run, now);
+      if (inspected !== null) {
+        changed = inspected || changed;
+        continue;
+      }
+      if (run.missingSince === undefined) {
+        run.missingSince = now;
+      } else if (now - run.missingSince > MISSING_STATUS_GRACE_MS) {
+        asyncRuns.delete(id);
+        changed = true;
+      }
+    }
+
+    prune({ skipPollingUpdate: true });
+    if (changed) requestRender();
+    ensurePolling();
+  }
+
+  function prune(options: { skipPollingUpdate?: boolean } = {}): void {
+    const now = getNow();
+    if (lastTerminal && now - lastTerminal.terminalAt > TERMINAL_RETENTION_MS) {
+      lastTerminal = null;
+      requestRender();
+    }
+    if (!options.skipPollingUpdate) ensurePolling();
+  }
+
+  function start(nextSessionId?: string): void {
+    active = true;
+    sessionId = nextSessionId ?? deps.getSessionId?.();
+    ensurePolling();
+  }
+
+  function dispose(): void {
+    active = false;
+    asyncRuns.clear();
+    foreground = null;
+    lastTerminal = null;
+    ensurePolling();
+    requestRender();
+  }
+
+  function getPowerlineStatus(): SubagentPowerlineStatus {
+    return formatSubagentPowerlineStatus({ foreground, asyncRuns: [...asyncRuns.values()], lastTerminal }, { now: getNow() });
+  }
+
+  function handleAsyncStarted(payload: unknown): void {
+    if (!active || !isRecord(payload)) return;
+    const id = resolvePayloadRunId(payload);
+    if (!id) return;
+    const now = getNow();
+    const mode = normalizeMode(payload.mode) ?? "single";
+    const activeAgent = stringValue(payload.agent) ?? firstString(payload.agents);
+    const totalStepsValue = integerValue(payload.chainStepCount);
+    asyncRuns.set(id, {
+      id,
+      source: "async",
+      mode,
+      state: "running",
+      ...(activeAgent ? { activeAgent } : {}),
+      ...(typeof totalStepsValue === "number" && totalStepsValue > 0 ? { totalSteps: totalStepsValue } : {}),
+      updatedAt: now,
+      asyncDir: stringValue(payload.asyncDir),
+      missingSince: undefined,
+      readFailures: 0,
+    });
+    ensurePolling();
+    requestRender();
+  }
+
+  function handleAsyncComplete(payload: unknown): void {
+    if (!active || !isRecord(payload)) return;
+    const id = resolvePayloadRunId(payload);
+    if (!id) return;
+    const now = getNow();
+    const existing = asyncRuns.get(id);
+    const explicitState = normalizeLifecycleState(payload.state) ?? normalizeLifecycleState(payload.status);
+    const state = explicitState === "paused" ? "paused" : payload.success === true ? "complete" : payload.success === false ? "failed" : explicitState ?? "complete";
+    const mode = normalizeMode(payload.mode) ?? existing?.mode ?? "single";
+    const activeAgent = stringValue(payload.agent) ?? firstString(payload.agents) ?? existing?.activeAgent;
+    asyncRuns.delete(id);
+    recordTerminalRun({
+      ...(existing ?? {}),
+      id,
+      source: "async",
+      mode,
+      state,
+      ...(activeAgent ? { activeAgent } : {}),
+      updatedAt: now,
+    }, now);
+    ensurePolling();
+    requestRender();
+  }
+
+  function handleControlEvent(payload: unknown): void {
+    if (!active) return;
+    const outer = isRecord(payload) ? payload : null;
+    const event = outer && isRecord(outer.event) ? outer.event : payload;
+    if (!isRecord(event) || event.type !== "needs_attention") return;
+    const id = resolvePayloadRunId(event) ?? (outer ? resolvePayloadRunId(outer) : undefined);
+    if (!id) return;
+    const run = asyncRuns.get(id);
+    if (!run) return;
+    run.activityState = "needs_attention";
+    run.activeAgent = stringValue(event.agent) ?? run.activeAgent;
+    run.currentTool = stringValue(event.currentTool) ?? run.currentTool;
+    run.currentPath = stringValue(event.currentPath) ?? run.currentPath;
+    run.updatedAt = numberValue(event.ts) ?? getNow();
+    requestRender();
+  }
+
+  function handleForegroundStart(event: unknown): void {
+    if (!active) return;
+    const args = extractArgs(event);
+    const mode = normalizeMode(args?.mode) ?? inferForegroundMode(args);
+    const activeAgent = stringValue(args?.agent) ?? stringValue(args?.chainName) ?? firstString(args?.agents);
+    foreground = {
+      id: "foreground",
+      source: "foreground",
+      mode,
+      state: "running",
+      ...(activeAgent ? { activeAgent } : {}),
+      updatedAt: getNow(),
+    };
+    requestRender();
+  }
+
+  function handleForegroundUpdate(event: unknown): void {
+    if (!active || !foreground) return;
+    const details = extractForegroundDetails(event);
+    if (!details) return;
+    foreground = { ...foreground, ...details, updatedAt: getNow() };
+    requestRender();
+  }
+
+  function handleForegroundEnd(event: unknown): void {
+    if (!active) return;
+    const now = getNow();
+    const failed = isRecord(event) && event.isError === true;
+    lastTerminal = {
+      ...(foreground ?? { id: "foreground", source: "foreground" as const, mode: "single" as const, updatedAt: now }),
+      state: failed ? "failed" : "complete",
+      updatedAt: now,
+      terminalAt: now,
+    };
+    foreground = null;
+    ensurePolling();
+    requestRender();
+  }
+
+  return {
+    start,
+    dispose,
+    scanNow,
+    prune,
+    getPowerlineStatus,
+    handleAsyncStarted,
+    handleAsyncComplete,
+    handleControlEvent,
+    handleForegroundStart,
+    handleForegroundUpdate,
+    handleForegroundEnd,
+  };
 }
 
 export function formatSubagentPowerlineStatus(
@@ -367,4 +692,73 @@ function safeExists(candidatePath: string, exists: (path: string) => boolean): b
   } catch {
     return false;
   }
+}
+
+function listDirectoryNames(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+}
+
+function unrefInterval(handle: IntervalHandle): void {
+  const maybeUnref = (handle as { unref?: () => void }).unref;
+  if (typeof maybeUnref === "function") maybeUnref.call(handle);
+}
+
+function resolvePayloadRunId(payload: Record<string, unknown>): string | undefined {
+  return stringValue(payload.id) ?? stringValue(payload.runId) ?? stringValue(payload.asyncId);
+}
+
+function extractArgs(event: unknown): Record<string, unknown> | null {
+  if (!isRecord(event)) return null;
+  if (isRecord(event.args)) return event.args;
+  if (isRecord(event.toolArgs)) return event.toolArgs;
+  return null;
+}
+
+function inferForegroundMode(args: Record<string, unknown> | null): SubagentMode {
+  if (!args) return "single";
+  if (Array.isArray(args.chain)) return "chain";
+  if (Array.isArray(args.tasks)) return "parallel";
+  return "single";
+}
+
+function extractForegroundDetails(event: unknown): Partial<SubagentRunSummary> | null {
+  const candidate = firstProgressRecord(event);
+  if (!candidate) return null;
+
+  const activeAgent = stringValue(candidate.agent);
+  const activityState = normalizeActivityState(candidate.activityState);
+  const currentTool = stringValue(candidate.currentTool);
+  const currentPath = stringValue(candidate.currentPath);
+  const state = normalizeLifecycleState(candidate.status) ?? normalizeLifecycleState(candidate.state);
+
+  const details: Partial<SubagentRunSummary> = {};
+  if (activeAgent) details.activeAgent = activeAgent;
+  if (activityState) details.activityState = activityState;
+  if (currentTool) details.currentTool = currentTool;
+  if (currentPath) details.currentPath = currentPath;
+  if (state) details.state = state;
+  return Object.keys(details).length > 0 ? details : null;
+}
+
+function firstProgressRecord(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const direct = firstRecord(value.progress);
+  if (direct) return direct;
+  const details = isRecord(value.details) ? value.details : null;
+  const detailsProgress = firstRecord(details?.progress);
+  if (detailsProgress) return detailsProgress;
+  const partialResult = isRecord(value.partialResult) ? value.partialResult : null;
+  const partialDetails = isRecord(partialResult?.details) ? partialResult.details : null;
+  const partialProgress = firstRecord(partialDetails?.progress);
+  if (partialProgress) return partialProgress;
+  const result = isRecord(value.result) ? value.result : null;
+  const resultDetails = isRecord(result?.details) ? result.details : null;
+  return firstRecord(resultDetails?.progress);
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  if (Array.isArray(value)) return value.find(isRecord) ?? null;
+  return isRecord(value) ? value : null;
 }
