@@ -1,3 +1,6 @@
 package-lock.json
 progress.md
 node_modules/
+.worktrees/
+docs/superpowers/plans/
+docs/superpowers/specs/

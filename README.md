@@ -28,6 +28,8 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 **Context awareness** — Color-coded warnings at 70% (yellow) and 90% (red) context usage. During streaming, the context segment refreshes from live assistant usage instead of waiting for the next turn. Auto-compact indicator when enabled. If `pi-custom-compaction` is installed and enabled, the powerline automatically hides native context segments so the footer does not show stale post-summary usage.
 
+**Subagent progress** — When `pi-subagents` is installed, Powerline shows a compact `subagents` segment for foreground and async subagent work. Async runs remain non-blocking; the segment shows running, needs-attention, completed, failed, or paused summaries while detailed logs stay in the existing subagent widget / Ctrl+O view. The segment hides automatically when idle.
+
 **Token intelligence** — Smart formatting (1.2k, 45M), subscription detection (shows "(sub)" vs dollar cost).
 
 **Sticky bash mode** — Toggle bash mode with `ctrl+shift+b` or `/bash-mode`. It keeps a managed shell session alive for the current pi session, shows a dedicated `shell_mode` segment, streams command output into an embedded transcript below the editor, and lets `cd` or exported state persist across commands.
@@ -67,17 +69,17 @@ Use `"fixedEditor": true` to enable it again. Add `"mouseScroll": false` if you 
 
 | Preset | Description |
 |--------|-------------|
-| `default` | Model, thinking, path (basename), git, context, tokens, cost |
+| `default` | Model, thinking, path (basename), git, subagents, context, tokens, cost |
 | `minimal` | Just path (basename), git, context |
 | `compact` | Model, git, cost, context |
-| `full` | Everything including hostname, time, abbreviated path |
-| `nerd` | Maximum detail for Nerd Font users |
+| `full` | Everything including hostname, time, abbreviated path, and subagents |
+| `nerd` | Maximum detail for Nerd Font users, including subagents |
 | `ascii` | Safe for any terminal |
 
 **Environment:** `POWERLINE_NERD_FONTS=1` to force Nerd Fonts, `=0` for ASCII.
 
 Preset selection is saved to `~/.pi/agent/settings.json` under `powerline` and restored on startup.
-Run `/powerline default` to switch back to the default preset.
+Run `/powerline default` to switch back to the default preset. The `subagents` segment is included in `default`, `full`, and `nerd`, and stays hidden when no subagent work is active.
 
 ### Custom items from extension statuses
 

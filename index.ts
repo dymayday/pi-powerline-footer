@@ -1,11 +1,12 @@
 import {
   copyToClipboard,
   type ExtensionAPI,
+  type ExtensionUIContext,
   type ReadonlyFooterDataProvider,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { isKeyRelease, matchesKey, type AutocompleteProvider, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
+import { isKeyRelease, matchesKey, type AutocompleteProvider, type KeyId, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -34,6 +35,7 @@ import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSession
 import { createWelcomeDismissScheduler } from "./welcome-dismiss.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
 import { readCoreContextUsage } from "./context-usage.ts";
+import { createSubagentStatusController } from "./subagents-status.ts";
 import { renderFixedEditorCluster } from "./fixed-editor/cluster.ts";
 import { emergencyTerminalModeReset, TerminalSplitCompositor } from "./fixed-editor/terminal-split.ts";
 import { getDefaultColors } from "./theme.ts";
@@ -67,6 +69,7 @@ import {
 let config: PowerlineConfig = {
   preset: "default",
   customItems: [],
+  segmentOptions: {},
   mouseScroll: true,
   fixedEditor: true,
 };
@@ -75,18 +78,18 @@ const CUSTOM_COMPACTION_STATUS_KEY = "compact-policy";
 let customCompactionEnabled = false;
 
 interface PowerlineShortcuts {
-  stashHistory: string;
-  copyEditor: string;
-  cutEditor: string;
-  jumpPreviousUserMessage: string;
-  jumpNextUserMessage: string;
-  jumpPreviousLlmMessage: string;
-  jumpNextLlmMessage: string;
-  jumpChatBottom: string;
-  scrollChatUp: string;
-  scrollChatDown: string;
-  editorStart: string;
-  editorEnd: string;
+  stashHistory: KeyId;
+  copyEditor: KeyId;
+  cutEditor: KeyId;
+  jumpPreviousUserMessage: KeyId;
+  jumpNextUserMessage: KeyId;
+  jumpPreviousLlmMessage: KeyId;
+  jumpNextLlmMessage: KeyId;
+  jumpChatBottom: KeyId;
+  scrollChatUp: KeyId;
+  scrollChatDown: KeyId;
+  editorStart: KeyId;
+  editorEnd: KeyId;
 }
 
 type PowerlineShortcutKey = keyof PowerlineShortcuts;
@@ -206,7 +209,7 @@ const APP_RESERVED_SHORTCUTS = [
 ] as const;
 const EXTRA_RESERVED_SHORTCUTS = ["alt+s"] as const;
 const SHORTCUT_MODIFIER_ORDER = ["ctrl", "alt", "super", "shift"] as const;
-const SHORTCUT_MODIFIERS = new Set(SHORTCUT_MODIFIER_ORDER);
+const SHORTCUT_MODIFIERS: ReadonlySet<string> = new Set(SHORTCUT_MODIFIER_ORDER);
 const SHORTCUT_NAMED_KEYS = new Set([
   "escape", "esc", "enter", "return", "tab", "space", "backspace", "delete", "insert", "clear",
   "home", "end", "pageup", "pagedown", "up", "down", "left", "right",
@@ -686,7 +689,7 @@ function normalizeShortcut(value: string): string {
   const parts = value.trim().toLowerCase().split("+");
   if (parts.length <= 1) return parts[0] ?? "";
 
-  const modifierRank = new Map(SHORTCUT_MODIFIER_ORDER.map((modifier, index) => [modifier, index]));
+  const modifierRank = new Map<string, number>(SHORTCUT_MODIFIER_ORDER.map((modifier, index) => [modifier, index]));
   const modifiers = parts.slice(0, -1).sort((a, b) => (modifierRank.get(a) ?? 99) - (modifierRank.get(b) ?? 99));
   return [...modifiers, parts[parts.length - 1]].join("+");
 }
@@ -718,7 +721,7 @@ function isValidShortcutKeyPart(keyPart: string): boolean {
   return SHORTCUT_SYMBOL_KEYS.has(keyPart);
 }
 
-function parseShortcutOverride(value: unknown): string | null {
+function parseShortcutOverride(value: unknown): KeyId | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -758,14 +761,14 @@ function parseShortcutOverride(value: unknown): string | null {
     return null;
   }
 
-  return normalizedShortcut;
+  return normalizedShortcut as KeyId;
 }
 
 function shortcutUsageKey(shortcut: string): string {
   return shortcutConflictKey(normalizeShortcut(shortcut));
 }
 
-function findShortcutReplacement(key: PowerlineShortcutKey, used: Set<string>): string | null {
+function findShortcutReplacement(key: PowerlineShortcutKey, used: Set<string>): KeyId | null {
   const preferred = DEFAULT_SHORTCUTS[key];
   if (!used.has(shortcutUsageKey(preferred))) {
     return preferred;
@@ -1038,6 +1041,27 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     statusRenderScheduler.schedule(0);
   };
 
+  const subagentStatus = createSubagentStatusController({
+    getSessionId: () => currentCtx?.sessionManager?.getSessionId?.(),
+    requestRender: () => requestImmediateStatusRender({ deferDuringTyping: false }),
+  });
+
+  function startSubagentStatus(ctx: any): void {
+    if (!enabled || !ctx?.hasUI) {
+      subagentStatus.dispose();
+      return;
+    }
+
+    subagentStatus.start(ctx.sessionManager?.getSessionId?.());
+    subagentStatus.scanNow();
+  }
+
+  const subagentEventUnsubscribes = [
+    pi.events.on("subagent:async-started", (payload: unknown) => subagentStatus.handleAsyncStarted(payload)),
+    pi.events.on("subagent:async-complete", (payload: unknown) => subagentStatus.handleAsyncComplete(payload)),
+    pi.events.on("subagent:control-event", (payload: unknown) => subagentStatus.handleControlEvent(payload)),
+  ];
+
   const installFooterStatusRepaintHook = (footerData: ReadonlyFooterDataProvider) => {
     restoreFooterStatusRepaintHook?.();
     restoreFooterStatusRepaintHook = null;
@@ -1159,7 +1183,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     items: SelectItem[],
     maxVisible: number,
   ): Promise<SelectItem | null> {
-    return ctx.ui.custom<SelectItem | null>(
+    const custom = ctx.ui.custom as ExtensionUIContext["custom"];
+    return custom<SelectItem | null>(
       (tui: any, theme: Theme, _keybindings: any, done: (result: SelectItem | null) => void) => {
         const selectList = new SelectList(items, maxVisible, overlaySelectListTheme(theme));
         const border = (text: string) => theme.fg("dim", text);
@@ -1199,8 +1224,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       {
         overlay: true,
         overlayOptions: () => ({
-          verticalAlign: "center",
-          horizontalAlign: "center",
+          anchor: "center" as const,
         }),
       },
     );
@@ -1229,8 +1253,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     bashTranscript = new BashTranscriptStore(bashModeSettings);
     bashCompletionEngine = new BashCompletionEngine();
 
-    getThinkingLevelFn = typeof ctx.getThinkingLevel === "function"
-      ? () => ctx.getThinkingLevel()
+    const contextWithThinking = ctx as typeof ctx & { getThinkingLevel?: () => string };
+    getThinkingLevelFn = typeof contextWithThinking.getThinkingLevel === "function"
+      ? () => contextWithThinking.getThinkingLevel?.() ?? "off"
       : null;
     currentThinkingLevel = getThinkingLevelFn?.() ?? null;
 
@@ -1243,6 +1268,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     
     if (enabled && ctx.hasUI) {
       setupCustomEditor(ctx);
+      startSubagentStatus(ctx);
       if (event.reason === "startup") {
         if (settings.quietStartup === true) {
           setupWelcomeHeader(ctx);
@@ -1264,6 +1290,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const isTerminalExit = event?.reason === "quit" || event?.reason === "reload";
 
     sessionGeneration++;
+    subagentStatus.dispose();
+    if (isTerminalExit) {
+      subagentEventUnsubscribes.splice(0).forEach((unsubscribe) => unsubscribe());
+    }
     dismissWelcomeOverlay?.();
     dismissWelcomeOverlay = null;
     welcomeHeaderActive = false;
@@ -1286,6 +1316,18 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     tuiRef = null;
     currentEditor = null;
     resetLayoutCache();
+  });
+
+  pi.on("tool_execution_start", async (event) => {
+    if (event.toolName === "subagent") subagentStatus.handleForegroundStart(event);
+  });
+
+  pi.on("tool_execution_update", async (event) => {
+    if (event.toolName === "subagent") subagentStatus.handleForegroundUpdate(event);
+  });
+
+  pi.on("tool_execution_end", async (event) => {
+    if (event.toolName === "subagent") subagentStatus.handleForegroundEnd(event);
   });
 
   // Check if a bash command might change git branch
@@ -1731,8 +1773,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         enabled = !enabled;
         if (enabled) {
           setupCustomEditor(ctx);
+          startSubagentStatus(ctx);
           ctx.ui.notify("Powerline enabled", "info");
         } else {
+          subagentStatus.dispose();
           shellSession?.dispose();
           shellSession = null;
           bashTranscript.clear();
@@ -1879,7 +1923,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerShortcut(bashModeSettings.toggleShortcut, {
+  pi.registerShortcut(bashModeSettings.toggleShortcut as KeyId, {
     description: "Toggle bash mode",
     handler: async (ctx) => {
       if (!enabled || !ctx.hasUI) return;
@@ -2135,6 +2179,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       shellRunning: shellSession?.state.running ?? false,
       shellName: shellSession?.state.shellName ?? null,
       shellCwd: shellSession?.state.cwd ?? null,
+      subagentsStatus: subagentStatus.getPowerlineStatus(),
       git: gitStatus,
       extensionStatuses,
       hiddenExtensionStatusKeys,
@@ -2617,10 +2662,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         const defaultProvider = getInstalledAutocompleteProvider();
         if (!defaultProvider) return false;
 
-        const bashProvider = new BashAutocompleteProvider();
-        const oneOffBashProvider = new OneOffBashAutocompleteProvider();
+        const bashProvider = new BashAutocompleteProvider() as unknown as AutocompleteProvider;
+        const oneOffBashProvider = new OneOffBashAutocompleteProvider() as unknown as AutocompleteProvider;
         editor.installAutocompleteProvider(
-          new ModeAwareAutocompleteProvider(defaultProvider, bashProvider, oneOffBashProvider, () => bashModeActive),
+          new ModeAwareAutocompleteProvider(defaultProvider, bashProvider, oneOffBashProvider, () => bashModeActive) as unknown as AutocompleteProvider,
         );
         return true;
       };
@@ -2862,7 +2907,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
             horizontalAlign: "center",
           }),
         },
-      ).catch((error) => {
+      ).catch((error: unknown) => {
         console.debug("[powerline-footer] Welcome overlay failed:", error);
       });
     }, 100);
