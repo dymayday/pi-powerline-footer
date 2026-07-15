@@ -50,8 +50,10 @@ export function packSegmentsIntoRows(
 
     for (let index = 0; index < fragments.length; index++) {
       const fragment = fragments[index]!;
+      const fragmentWidth = visibleWidth(fragment);
+      if (fragmentWidth > contentWidth) return rows;
       currentRow = [fragment];
-      currentWidth = visibleWidth(fragment);
+      currentWidth = fragmentWidth;
       if (index < fragments.length - 1 && !commitRow()) return rows;
     }
   }

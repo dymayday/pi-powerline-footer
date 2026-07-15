@@ -69,6 +69,12 @@ test("retains only the earliest seven rows", () => {
   assert.deepEqual(rows.flat(), Array.from({ length: 7 }, (_, index) => `row-${index}`));
 });
 
+test("does not emit an unsplittable wide grapheme beyond terminal width", () => {
+  const rows = packSegmentsIntoRows([segment("😀")], 3, 1);
+
+  assert.deepEqual(rows, []);
+});
+
 test("returns no rows when outer padding cannot fit", () => {
   assert.deepEqual(packSegmentsIntoRows([segment("status")], 2, 1), []);
   assert.deepEqual(packSegmentsIntoRows([segment("status")], 0, 1), []);
