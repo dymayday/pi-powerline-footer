@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Powerline status wrapping** — Overflowing segments, including long extension timers, now wrap in order across up to seven rows instead of disappearing; constrained fixed-editor layouts retain the earliest wrapped rows.
+
 ## [0.6.1] - 2026-06-08
 
 ### Fixed
