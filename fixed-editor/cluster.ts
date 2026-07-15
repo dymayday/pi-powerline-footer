@@ -36,6 +36,11 @@ function takeTail(lines: string[], count: number): string[] {
   return lines.length <= count ? lines : lines.slice(lines.length - count);
 }
 
+function takeHead(lines: string[], count: number): string[] {
+  if (count <= 0) return [];
+  return lines.length <= count ? lines : lines.slice(0, count);
+}
+
 function capEditorLines(lines: string[], count: number): string[] {
   if (count <= 0) return [];
   if (lines.length <= count) return lines;
@@ -91,7 +96,7 @@ export function renderFixedEditorCluster(input: FixedEditorClusterInput): FixedE
   const top = takeTail(topLines, remaining);
   remaining -= top.length;
 
-  const secondary = takeTail(secondaryLines, remaining);
+  const secondary = takeHead(secondaryLines, remaining);
   remaining -= secondary.length;
 
   const lastPrompt = takeTail(lastPromptLines, remaining);
