@@ -37,6 +37,7 @@ import { createRenderScheduler } from "./render-scheduler.ts";
 import { readCoreContextUsage } from "./context-usage.ts";
 import { createSubagentStatusController } from "./subagents-status.ts";
 import { renderFixedEditorCluster } from "./fixed-editor/cluster.ts";
+import { packSegmentsIntoRows } from "./responsive-layout.ts";
 import { emergencyTerminalModeReset, TerminalSplitCompositor } from "./fixed-editor/terminal-split.ts";
 import { getDefaultColors } from "./theme.ts";
 import {
@@ -888,69 +889,24 @@ function buildContentFromParts(
 function computeResponsiveLayout(
   ctx: SegmentContext,
   presetDef: ReturnType<typeof getPreset>,
-  availableWidth: number
-): { topContent: string; secondaryContent: string } {
+  availableWidth: number,
+): string[] {
   const separatorDef = getSeparator(presetDef.separator);
-  const sepWidth = visibleWidth(separatorDef.left) + 2; // separator + spaces around it
-  
-  // Get all segments: primary first, then secondary
+  const separatorWidth = visibleWidth(separatorDef.left) + 2;
   const mergedSegments = mergeSegmentsWithCustomItems(presetDef, config.customItems);
-  const primaryIds = [...mergedSegments.leftSegments, ...mergedSegments.rightSegments];
-  const secondaryIds = mergedSegments.secondarySegments;
-  const allSegmentIds = [...primaryIds, ...secondaryIds];
-  
-  // Render all segments and get their widths
-  const renderedSegments: { content: string; width: number }[] = [];
-  for (const segId of allSegmentIds) {
-    const { content, width, visible } = renderSegmentWithWidth(segId, ctx);
-    if (visible) {
-      renderedSegments.push({ content, width });
-    }
-  }
-  
-  if (renderedSegments.length === 0) {
-    return { topContent: "", secondaryContent: "" };
-  }
-  
-  // Calculate how many segments fit in top bar
-  // Account for: leading space (1) + trailing space (1) = 2 chars overhead
-  const baseOverhead = 2;
-  let currentWidth = baseOverhead;
-  let topSegments: string[] = [];
-  let overflowSegments: { content: string; width: number }[] = [];
-  let overflow = false;
-  
-  for (const seg of renderedSegments) {
-    const neededWidth = seg.width + (topSegments.length > 0 ? sepWidth : 0);
-    
-    if (!overflow && currentWidth + neededWidth <= availableWidth) {
-      topSegments.push(seg.content);
-      currentWidth += neededWidth;
-    } else {
-      overflow = true;
-      overflowSegments.push(seg);
-    }
-  }
-  
-  // Fit overflow segments into secondary row (same width constraint)
-  // Stop at first non-fitting segment to preserve ordering
-  let secondaryWidth = baseOverhead;
-  let secondarySegments: string[] = [];
-  
-  for (const seg of overflowSegments) {
-    const neededWidth = seg.width + (secondarySegments.length > 0 ? sepWidth : 0);
-    if (secondaryWidth + neededWidth <= availableWidth) {
-      secondarySegments.push(seg.content);
-      secondaryWidth += neededWidth;
-    } else {
-      break;
-    }
-  }
-  
-  return {
-    topContent: buildContentFromParts(topSegments, presetDef),
-    secondaryContent: buildContentFromParts(secondarySegments, presetDef),
-  };
+  const segmentIds = [
+    ...mergedSegments.leftSegments,
+    ...mergedSegments.rightSegments,
+    ...mergedSegments.secondarySegments,
+  ];
+
+  const renderedSegments = segmentIds
+    .map((segmentId) => renderSegmentWithWidth(segmentId, ctx))
+    .filter((segment) => segment.visible)
+    .map(({ content, width }) => ({ content, width }));
+
+  return packSegmentsIntoRows(renderedSegments, availableWidth, separatorWidth)
+    .map((row) => buildContentFromParts(row, presetDef));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -995,7 +951,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   
   // Cache for the top and secondary powerline widgets.
   let lastLayoutWidth = 0;
-  let lastLayoutResult: { topContent: string; secondaryContent: string } | null = null;
+  let lastLayoutResult: string[] | null = null;
   let lastLayoutTimestamp = 0;
   let layoutDirty = true;
   let forceNextLayoutRecompute = false;
@@ -2194,7 +2150,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
    * Get cached responsive layout or compute fresh one.
    * The segment context scans session state, so keep it stable across render bursts.
    */
-  function getResponsiveLayout(width: number, theme: Theme): { topContent: string; secondaryContent: string } {
+  function getResponsiveLayout(width: number, theme: Theme): string[] {
     const now = Date.now();
     const cacheTtl = isStreaming ? STREAMING_LAYOUT_CACHE_TTL_MS : LAYOUT_CACHE_TTL_MS;
 
@@ -2219,7 +2175,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       if (!isStaleExtensionContextError(error)) throw error;
       currentCtx = null;
       lastLayoutWidth = width;
-      lastLayoutResult = { topContent: "", secondaryContent: "" };
+      lastLayoutResult = [];
       lastLayoutTimestamp = now;
       layoutDirty = false;
       forceNextLayoutRecompute = false;
@@ -2255,16 +2211,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   function renderPowerlineTopLines(width: number, theme: Theme): string[] {
     if (!currentCtx) return [];
-
-    const layout = getResponsiveLayout(width, theme);
-    return layout.topContent ? [layout.topContent] : [];
+    return getResponsiveLayout(width, theme).slice(0, 1);
   }
 
   function renderPowerlineSecondaryLines(width: number, theme: Theme): string[] {
     if (!currentCtx) return [];
-
-    const layout = getResponsiveLayout(width, theme);
-    return layout.secondaryContent ? [layout.secondaryContent] : [];
+    return getResponsiveLayout(width, theme).slice(1);
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
