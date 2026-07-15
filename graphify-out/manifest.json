@@ -218,5 +218,235 @@
     "mtime": 1781803141.26212,
     "ast_hash": "3f5f35f050eaa6e7787426d67e87c61f",
     "semantic_hash": "3f5f35f050eaa6e7787426d67e87c61f"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/bash-mode/completion.ts": {
+    "mtime": 1784133626.3831637,
+    "ast_hash": "6f4b2c73fec7952520822ed7848057d3",
+    "semantic_hash": "6f4b2c73fec7952520822ed7848057d3"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/bash-mode/editor.ts": {
+    "mtime": 1784133626.383313,
+    "ast_hash": "ae0e9d689135bb32ffbfa8cd868d8729",
+    "semantic_hash": "ae0e9d689135bb32ffbfa8cd868d8729"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/bash-mode/history.ts": {
+    "mtime": 1784133626.3833878,
+    "ast_hash": "6856b1495041a65fbe51fc2d949f62ab",
+    "semantic_hash": "6856b1495041a65fbe51fc2d949f62ab"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/bash-mode/shell-session.ts": {
+    "mtime": 1784133626.3835087,
+    "ast_hash": "ca38237079905cd76c1e976e19963951",
+    "semantic_hash": "ca38237079905cd76c1e976e19963951"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/bash-mode/transcript.ts": {
+    "mtime": 1784133626.3835716,
+    "ast_hash": "3c5a23dbe976b9d1335165a8b3415546",
+    "semantic_hash": "3c5a23dbe976b9d1335165a8b3415546"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/bash-mode/types.ts": {
+    "mtime": 1784133626.3836424,
+    "ast_hash": "43d7844548318e5744593befd0ebe119",
+    "semantic_hash": "43d7844548318e5744593befd0ebe119"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/colors.ts": {
+    "mtime": 1784133626.3837094,
+    "ast_hash": "7ba3d354fc2980c0b5070e520ae0e0e6",
+    "semantic_hash": "7ba3d354fc2980c0b5070e520ae0e0e6"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/context-usage.ts": {
+    "mtime": 1784133626.3837683,
+    "ast_hash": "1899b8a89125841c9ee0d5f44df09724",
+    "semantic_hash": "1899b8a89125841c9ee0d5f44df09724"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/fixed-editor/cluster.ts": {
+    "mtime": 1784133626.3838778,
+    "ast_hash": "b77d6464b6fcae5fb1bee69c4ee73cc0",
+    "semantic_hash": "b77d6464b6fcae5fb1bee69c4ee73cc0"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/fixed-editor/terminal-split.ts": {
+    "mtime": 1784133626.3839693,
+    "ast_hash": "98d9f050069b70d76f21c9dadd70b8ef",
+    "semantic_hash": "98d9f050069b70d76f21c9dadd70b8ef"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/git-status.ts": {
+    "mtime": 1784133626.3840537,
+    "ast_hash": "306794ce5df3cf9768c91e0887436f7b",
+    "semantic_hash": "306794ce5df3cf9768c91e0887436f7b"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/icons.ts": {
+    "mtime": 1784133626.3867135,
+    "ast_hash": "2f13091951d524f6eda9ecccd65c2160",
+    "semantic_hash": "2f13091951d524f6eda9ecccd65c2160"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/index.ts": {
+    "mtime": 1784133626.3869162,
+    "ast_hash": "6c98f92e507c5a60b8ba14a9bb7e09d3",
+    "semantic_hash": "6c98f92e507c5a60b8ba14a9bb7e09d3"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/package.json": {
+    "mtime": 1784133626.3889296,
+    "ast_hash": "f499df71c00bceb94d0207e26b71b261",
+    "semantic_hash": "f499df71c00bceb94d0207e26b71b261"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/powerline-config.ts": {
+    "mtime": 1784133626.389083,
+    "ast_hash": "b4bf299da4b87721ef8bfb5971f3adc7",
+    "semantic_hash": "b4bf299da4b87721ef8bfb5971f3adc7"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/presets.ts": {
+    "mtime": 1784133626.3891697,
+    "ast_hash": "674697eb5a10b1823dfa09fde81d8d54",
+    "semantic_hash": "674697eb5a10b1823dfa09fde81d8d54"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/render-scheduler.ts": {
+    "mtime": 1784133626.3892386,
+    "ast_hash": "6381abada8869ca437777200d2e5ebcd",
+    "semantic_hash": "6381abada8869ca437777200d2e5ebcd"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/responsive-layout.ts": {
+    "mtime": 1784133626.3893015,
+    "ast_hash": "2229a6a3cb1628255312e550a060743d",
+    "semantic_hash": "2229a6a3cb1628255312e550a060743d"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/segments.ts": {
+    "mtime": 1784133626.389398,
+    "ast_hash": "23d9be7477bb9e3f2a9df351994cac55",
+    "semantic_hash": "23d9be7477bb9e3f2a9df351994cac55"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/separators.ts": {
+    "mtime": 1784133626.3894646,
+    "ast_hash": "f8656596b9229d242645e82f50ae81c6",
+    "semantic_hash": "f8656596b9229d242645e82f50ae81c6"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/shortcuts.ts": {
+    "mtime": 1784133626.3895197,
+    "ast_hash": "01d83308c3e89dd55a75e8b7b62a2012",
+    "semantic_hash": "01d83308c3e89dd55a75e8b7b62a2012"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/subagents-status.ts": {
+    "mtime": 1784133626.3896158,
+    "ast_hash": "9a228fd7a79d95093c3bfbb8d5aa3ce0",
+    "semantic_hash": "9a228fd7a79d95093c3bfbb8d5aa3ce0"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/bash-mode.test.ts": {
+    "mtime": 1784133626.3897855,
+    "ast_hash": "1d5958c8b83545a8fb9cb76c506fc34c",
+    "semantic_hash": "1d5958c8b83545a8fb9cb76c506fc34c"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/context-usage.test.ts": {
+    "mtime": 1784133626.3898604,
+    "ast_hash": "610f50a7000dcbc5b980da5e68013a8f",
+    "semantic_hash": "610f50a7000dcbc5b980da5e68013a8f"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/custom-items.test.ts": {
+    "mtime": 1784133626.3899348,
+    "ast_hash": "3f8712cc434947d86724d7c6b86f49aa",
+    "semantic_hash": "3f8712cc434947d86724d7c6b86f49aa"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/editor-responsiveness.test.ts": {
+    "mtime": 1784133626.390012,
+    "ast_hash": "c82be30efc5857afc367ca1000bcef28",
+    "semantic_hash": "c82be30efc5857afc367ca1000bcef28"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/fixed-editor.test.ts": {
+    "mtime": 1784133626.3901122,
+    "ast_hash": "0d2d5497052426f04eb4443a28b6a21f",
+    "semantic_hash": "0d2d5497052426f04eb4443a28b6a21f"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/git-status.test.ts": {
+    "mtime": 1784133626.39017,
+    "ast_hash": "f40a7229368009ebd40b34d5a79fb261",
+    "semantic_hash": "f40a7229368009ebd40b34d5a79fb261"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/jump-shortcuts.test.ts": {
+    "mtime": 1784133626.390287,
+    "ast_hash": "1897f2bcd904cf53309b2e83b16543b5",
+    "semantic_hash": "1897f2bcd904cf53309b2e83b16543b5"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/presets.test.ts": {
+    "mtime": 1784133626.390344,
+    "ast_hash": "9eab64d501243ea638fbea6ea279d5a4",
+    "semantic_hash": "9eab64d501243ea638fbea6ea279d5a4"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/responsive-layout.test.ts": {
+    "mtime": 1784133626.3904083,
+    "ast_hash": "14084492dc62981b270dc3c9734868b1",
+    "semantic_hash": "14084492dc62981b270dc3c9734868b1"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/segments.test.ts": {
+    "mtime": 1784133626.3904696,
+    "ast_hash": "c5934be9211f4939d4b82a8885563b4e",
+    "semantic_hash": "c5934be9211f4939d4b82a8885563b4e"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/stash-shortcut.test.ts": {
+    "mtime": 1784133626.3905325,
+    "ast_hash": "d1a634cf1f841d6ec40163c1ec9bb98a",
+    "semantic_hash": "d1a634cf1f841d6ec40163c1ec9bb98a"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/subagents-index-wiring.test.ts": {
+    "mtime": 1784133626.3905923,
+    "ast_hash": "acd4c8f05917f49346a23c557a5a27d6",
+    "semantic_hash": "acd4c8f05917f49346a23c557a5a27d6"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/subagents-status.test.ts": {
+    "mtime": 1784133626.390707,
+    "ast_hash": "73ee88a7475cdfdc5c3bbc031c8adda1",
+    "semantic_hash": "73ee88a7475cdfdc5c3bbc031c8adda1"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/thinking-segment.test.ts": {
+    "mtime": 1784133626.3907714,
+    "ast_hash": "4da88e5def4b2022a2a6e047509347e8",
+    "semantic_hash": "4da88e5def4b2022a2a6e047509347e8"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/tests/working-vibes.test.ts": {
+    "mtime": 1784133626.3908494,
+    "ast_hash": "3f6bc456ae7a9373e26433b1773be7ed",
+    "semantic_hash": "3f6bc456ae7a9373e26433b1773be7ed"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/theme.example.json": {
+    "mtime": 1784133626.3909035,
+    "ast_hash": "9feb7e6ac5b041f6622beb41c88e7a9e",
+    "semantic_hash": "9feb7e6ac5b041f6622beb41c88e7a9e"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/theme.ts": {
+    "mtime": 1784133626.390972,
+    "ast_hash": "9be6cac622cfdc37bfaa0396107cfcb4",
+    "semantic_hash": "9be6cac622cfdc37bfaa0396107cfcb4"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/types.ts": {
+    "mtime": 1784133626.3911908,
+    "ast_hash": "249d64327c34710886562c3851a56604",
+    "semantic_hash": "249d64327c34710886562c3851a56604"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/welcome-dismiss.ts": {
+    "mtime": 1784133626.3912735,
+    "ast_hash": "63aaf92dfeed5ebfe20a5b56ad0fac44",
+    "semantic_hash": "63aaf92dfeed5ebfe20a5b56ad0fac44"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/welcome.ts": {
+    "mtime": 1784133626.3913717,
+    "ast_hash": "07d5babfcc8f7cdb9a203fe5b01e6cde",
+    "semantic_hash": "07d5babfcc8f7cdb9a203fe5b01e6cde"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/working-vibes.ts": {
+    "mtime": 1784133626.3914764,
+    "ast_hash": "0f2ffec620b297b88e495075d3d6d11a",
+    "semantic_hash": "0f2ffec620b297b88e495075d3d6d11a"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/CHANGELOG.md": {
+    "mtime": 1784133626.3819942,
+    "ast_hash": "88b5ec98b5fac50565b8dfcf7f3584d3",
+    "semantic_hash": "88b5ec98b5fac50565b8dfcf7f3584d3"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/README.md": {
+    "mtime": 1784133626.3821213,
+    "ast_hash": "9aa410fb9b7d9b9659da1e1b6750ccf0",
+    "semantic_hash": "9aa410fb9b7d9b9659da1e1b6750ccf0"
+  },
+  "/Users/meidhy/junk/repo/pi-powerline-footer/banner.png": {
+    "mtime": 1784133626.3829618,
+    "ast_hash": "3f5f35f050eaa6e7787426d67e87c61f",
+    "semantic_hash": "3f5f35f050eaa6e7787426d67e87c61f"
   }
 }
