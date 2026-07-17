@@ -30,7 +30,7 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 **Subagent progress** — When `pi-subagents` is installed, Powerline shows a compact `subagents` segment for foreground and async subagent work. Async runs remain non-blocking; the segment shows running, needs-attention, completed, failed, or paused summaries while detailed logs stay in the existing subagent widget / Ctrl+O view. The segment hides automatically when idle.
 
-**Token intelligence** — Smart formatting (1.2k, 45M), subscription detection (shows "(sub)" vs dollar cost), and raw 5-hour/weekly Codex OAuth quota usage when the provider returns it.
+**Token intelligence** — Smart formatting (1.2k, 45M), subscription detection (shows "(sub)" vs dollar cost), and raw 5-hour/weekly Codex OAuth quota usage from provider response headers when available.
 
 **Sticky bash mode** — Toggle bash mode with `ctrl+shift+b` or `/bash-mode`. It keeps a managed shell session alive for the current pi session, shows a dedicated `shell_mode` segment, streams command output into an embedded transcript below the editor, and lets `cd` or exported state persist across commands.
 
