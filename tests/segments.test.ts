@@ -15,6 +15,7 @@ function makeContext(overrides: Partial<SegmentContext> = {}): SegmentContext {
     autoCompactEnabled: true,
     customCompactionEnabled: false,
     usingSubscription: false,
+    codexQuota: null,
     sessionStartTime: Date.now(),
     shellModeActive: false,
     shellRunning: false,
@@ -56,6 +57,24 @@ test("cost segment falls back to subscription marker when no cost is reported", 
 
   assert.equal(rendered.visible, true);
   assert.equal(rendered.content, "(sub)");
+});
+
+test("quota segment renders raw primary and weekly usage", () => {
+  const rendered = renderSegment("quota", makeContext({
+    codexQuota: {
+      primary: { usedPercent: 25, windowMinutes: 300 },
+      secondary: { usedPercent: 60, windowMinutes: 10080 },
+    },
+  }));
+
+  assert.equal(rendered.visible, true);
+  assert.equal(rendered.content, "5h 25% · wk 60%");
+});
+
+test("quota segment is hidden without a Codex quota snapshot", () => {
+  const rendered = renderSegment("quota", makeContext());
+  assert.equal(rendered.visible, false);
+  assert.equal(rendered.content, "");
 });
 
 test("subagents segment is hidden with no status", () => {

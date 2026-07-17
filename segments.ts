@@ -1,6 +1,7 @@
 import { hostname as osHostname } from "node:os";
 import { basename } from "node:path";
 import type { BuiltinStatusLineSegmentId, RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.ts";
+import { formatCodexQuotaWindow } from "./codex-quota.ts";
 import { normalizeCompactExtensionStatus, normalizeExtensionStatusValue } from "./powerline-config.ts";
 import { fg, rainbow, applyColor } from "./theme.ts";
 import { getIcons, SEP_DOT, getThinkingText } from "./icons.ts";
@@ -286,6 +287,22 @@ const costSegment: StatusLineSegment = {
   },
 };
 
+const quotaSegment: StatusLineSegment = {
+  id: "quota",
+  render(ctx) {
+    const quota = ctx.codexQuota;
+    if (!quota) return { content: "", visible: false };
+
+    const parts = [
+      quota.primary ? formatCodexQuotaWindow(quota.primary, "5h") : null,
+      quota.secondary ? formatCodexQuotaWindow(quota.secondary, "wk") : null,
+    ].filter((part): part is string => part !== null);
+    if (parts.length === 0) return { content: "", visible: false };
+
+    return { content: color(ctx, "cost", parts.join(SEP_DOT)), visible: true };
+  },
+};
+
 const contextPctSegment: StatusLineSegment = {
   id: "context_pct",
   render(ctx) {
@@ -452,6 +469,7 @@ export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   token_out: tokenOutSegment,
   token_total: tokenTotalSegment,
   cost: costSegment,
+  quota: quotaSegment,
   context_pct: contextPctSegment,
   context_total: contextTotalSegment,
   time_spent: timeSpentSegment,
