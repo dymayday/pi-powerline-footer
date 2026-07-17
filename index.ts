@@ -40,6 +40,8 @@ import { renderFixedEditorCluster } from "./fixed-editor/cluster.ts";
 import { packSegmentsIntoRows } from "./responsive-layout.ts";
 import { emergencyTerminalModeReset, TerminalSplitCompositor } from "./fixed-editor/terminal-split.ts";
 import { getDefaultColors } from "./theme.ts";
+import type { CodexQuota } from "./codex-quota.ts";
+import { parseCodexQuota } from "./codex-quota.ts";
 import {
   isSupportedSuperShortcut,
   matchesConfiguredShortcut,
@@ -923,6 +925,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let getThinkingLevelFn: (() => string) | null = null;
   let currentThinkingLevel: string | null = null;
   let liveAssistantUsage: SessionAssistantUsage | null = null;
+  let codexQuota: CodexQuota | null = null;
   let isStreaming = false;
   let tuiRef: any = null;
   let restoreFooterStatusRepaintHook: (() => void) | null = null;
@@ -1194,6 +1197,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     isStreaming = false;
     liveAssistantUsage = null;
     stashedEditorText = null;
+    codexQuota = null;
 
     const settings = readSettings(ctx.cwd);
     bashModeSettings = parseBashModeSettings(settings);
@@ -1265,6 +1269,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     getThinkingLevelFn = null;
     currentThinkingLevel = null;
     liveAssistantUsage = null;
+    codexQuota = null;
     tuiRef = null;
     currentEditor = null;
     resetLayoutCache();
@@ -1326,7 +1331,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   pi.on("model_select", async (_event, ctx) => {
     currentCtx = ctx;
+    codexQuota = null;
     requestStatusRender();
+  });
+
+  pi.on("after_provider_response", (event, ctx) => {
+    currentCtx = ctx;
+    codexQuota = isCodexOAuthModel(ctx) ? parseCodexQuota(event.headers) : null;
+    requestImmediateStatusRender({ deferDuringTyping: false });
   });
 
   pi.on("thinking_level_select", async (event, ctx) => {
@@ -2054,6 +2066,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     },
   });
 
+  function isCodexOAuthModel(ctx: any): boolean {
+    const model = ctx?.model;
+    return model?.provider === "openai-codex" && ctx.modelRegistry?.isUsingOAuth?.(model) === true;
+  }
+
   function buildSegmentContext(ctx: any, theme: Theme): SegmentContext {
     const presetDef = getPreset(config.preset);
     const colors: ColorScheme = presetDef.colors ?? getDefaultColors();
@@ -2126,6 +2143,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       autoCompactEnabled: ctx.settingsManager?.getCompactionSettings?.()?.enabled ?? true,
       customCompactionEnabled: customCompactionEnabled || extensionStatuses.has(CUSTOM_COMPACTION_STATUS_KEY),
       usingSubscription,
+      codexQuota: isCodexOAuthModel(ctx) ? codexQuota : null,
       sessionStartTime,
       shellModeActive: bashModeActive,
       shellRunning: shellSession?.state.running ?? false,

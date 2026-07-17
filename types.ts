@@ -1,4 +1,5 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { CodexQuota } from "./codex-quota.ts";
 
 // Theme color - either a pi theme color name or a custom hex color
 export type ColorValue = ThemeColor | `#${string}`;
@@ -37,6 +38,7 @@ export type BuiltinStatusLineSegmentId =
   | "token_out"
   | "token_total"
   | "cost"
+  | "quota"
   | "context_pct"
   | "context_total"
   | "time_spent"
@@ -153,7 +155,7 @@ export interface UsageStats {
 // Context passed to segment render functions
 export interface SegmentContext {
   // From pi-mono
-  model: { id: string; name?: string; reasoning?: boolean; contextWindow?: number } | undefined;
+  model: { id: string; name?: string; provider?: string; reasoning?: boolean; contextWindow?: number } | undefined;
   thinkingLevel: string;
   sessionId: string | undefined;
   cwd?: string;
@@ -165,6 +167,7 @@ export interface SegmentContext {
   autoCompactEnabled: boolean;
   customCompactionEnabled: boolean;
   usingSubscription: boolean;
+  codexQuota: CodexQuota | null;
   sessionStartTime: number;
   shellModeActive: boolean;
   shellRunning: boolean;
