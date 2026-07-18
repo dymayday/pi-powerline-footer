@@ -71,6 +71,8 @@ import {
 
 let config: PowerlineConfig = {
   preset: "default",
+  layout: "flow",
+  timeFocus: false,
   customItems: [],
   segmentOptions: {},
   mouseScroll: true,
@@ -2145,6 +2147,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       usingSubscription,
       codexQuota: isCodexOAuthModel(ctx) ? codexQuota : null,
       sessionStartTime,
+      timeFocus: config.timeFocus,
       shellModeActive: bashModeActive,
       shellRunning: shellSession?.state.running ?? false,
       shellName: shellSession?.state.shellName ?? null,

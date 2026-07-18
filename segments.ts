@@ -352,7 +352,11 @@ const timeSpentSegment: StatusLineSegment = {
     const elapsed = Date.now() - ctx.sessionStartTime;
     if (elapsed < 1000) return { content: "", visible: false };
 
-    return { content: withIcon(icons.time, formatDuration(elapsed)), visible: true };
+    const content = withIcon(icons.time, formatDuration(elapsed));
+    return {
+      content: ctx.timeFocus ? ctx.theme.fg("warning", content) : content,
+      visible: true,
+    };
   },
 };
 

@@ -1,8 +1,19 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { ColorValue, CustomItemPosition, CustomStatusItem, PresetDef, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions } from "./types.ts";
+import type {
+  ColorValue,
+  CustomItemPosition,
+  CustomStatusItem,
+  PowerlineLayout,
+  PresetDef,
+  StatusLinePreset,
+  StatusLineSegmentId,
+  StatusLineSegmentOptions,
+} from "./types.ts";
 
 export interface PowerlineConfig {
   preset: StatusLinePreset;
+  layout: PowerlineLayout;
+  timeFocus: boolean;
   customItems: CustomStatusItem[];
   segmentOptions: StatusLineSegmentOptions;
   mouseScroll: boolean;
@@ -17,6 +28,10 @@ function normalizePreset(value: unknown, presets: readonly StatusLinePreset[]): 
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   return (presets as readonly string[]).includes(normalized) ? (normalized as StatusLinePreset) : null;
+}
+
+function normalizeLayout(value: unknown): PowerlineLayout {
+  return value === "balanced" ? "balanced" : "flow";
 }
 
 function normalizeCustomItemId(value: unknown): string | null {
@@ -137,7 +152,15 @@ export function mergeSegmentOptions(
 }
 
 export function parsePowerlineConfig(value: unknown, presets: readonly StatusLinePreset[]): PowerlineConfig {
-  const defaultConfig: PowerlineConfig = { preset: "default", customItems: [], segmentOptions: {}, mouseScroll: true, fixedEditor: true };
+  const defaultConfig: PowerlineConfig = {
+    preset: "default",
+    layout: "flow",
+    timeFocus: false,
+    customItems: [],
+    segmentOptions: {},
+    mouseScroll: true,
+    fixedEditor: true,
+  };
 
   const directPreset = normalizePreset(value, presets);
   if (directPreset) return { ...defaultConfig, preset: directPreset };
@@ -146,6 +169,8 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
 
   return {
     preset: normalizePreset(value.preset, presets) ?? defaultConfig.preset,
+    layout: normalizeLayout(value.layout),
+    timeFocus: value.timeFocus === true,
     customItems: normalizeCustomItems(value.customItems),
     segmentOptions: normalizeSegmentOptions(value),
     mouseScroll: value.mouseScroll !== false,
@@ -153,7 +178,11 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
   };
 }
 
-export function mergeSegmentsWithCustomItems(presetDef: PresetDef, customItems: readonly CustomStatusItem[]): {
+export function mergeSegmentsWithCustomItems(
+  presetDef: PresetDef,
+  customItems: readonly CustomStatusItem[],
+  timeFocus = false,
+): {
   leftSegments: StatusLineSegmentId[];
   rightSegments: StatusLineSegmentId[];
   secondarySegments: StatusLineSegmentId[];
@@ -169,7 +198,18 @@ export function mergeSegmentsWithCustomItems(presetDef: PresetDef, customItems: 
     else right.push(segmentId);
   }
 
-  return { leftSegments: left, rightSegments: right, secondarySegments: secondary };
+  if (!timeFocus) {
+    return { leftSegments: left, rightSegments: right, secondarySegments: secondary };
+  }
+
+  const withoutElapsedTime = (segments: readonly StatusLineSegmentId[]): StatusLineSegmentId[] =>
+    segments.filter((segment) => segment !== "time_spent");
+
+  return {
+    leftSegments: withoutElapsedTime(left),
+    rightSegments: ["time_spent", ...withoutElapsedTime(right)],
+    secondarySegments: withoutElapsedTime(secondary),
+  };
 }
 
 export function nextPowerlineSettingWithPreset(existingPowerlineSetting: unknown, preset: StatusLinePreset): unknown {

@@ -76,6 +76,8 @@ export type StatusLinePreset =
   | "ascii"
   | "custom";
 
+export type PowerlineLayout = "flow" | "balanced";
+
 // Per-segment options
 export interface StatusLineSegmentOptions {
   model?: { showThinkingLevel?: boolean };
@@ -169,6 +171,7 @@ export interface SegmentContext {
   usingSubscription: boolean;
   codexQuota: CodexQuota | null;
   sessionStartTime: number;
+  timeFocus: boolean;
   shellModeActive: boolean;
   shellRunning: boolean;
   shellName: string | null;
