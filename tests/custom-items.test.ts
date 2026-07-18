@@ -163,11 +163,12 @@ test("nextPowerlineSettingWithOptions preserves object settings", () => {
   if (typeof updated !== "object" || updated === null || Array.isArray(updated)) {
     assert.fail("expected an object powerline setting");
   }
+  const setting = updated as Record<string, unknown>;
 
-  assert.equal(updated.preset, "default");
-  assert.equal(updated.fixedEditor, false);
-  assert.equal(updated.mouseScroll, false);
-  assert.deepEqual(updated.customItems, [{ id: "ci" }]);
+  assert.equal(setting.preset, "default");
+  assert.equal(setting.fixedEditor, false);
+  assert.equal(setting.mouseScroll, false);
+  assert.deepEqual(setting.customItems, [{ id: "ci" }]);
 });
 
 test("nextPowerlineSettingWithOptions converts string presets to object settings", () => {
