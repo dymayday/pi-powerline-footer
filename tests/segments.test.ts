@@ -17,6 +17,7 @@ function makeContext(overrides: Partial<SegmentContext> = {}): SegmentContext {
     usingSubscription: false,
     codexQuota: null,
     sessionStartTime: Date.now(),
+    timeFocus: false,
     shellModeActive: false,
     shellRunning: false,
     shellName: null,
@@ -32,6 +33,21 @@ function makeContext(overrides: Partial<SegmentContext> = {}): SegmentContext {
     ...overrides,
   };
 }
+
+test("focused elapsed time uses the warning theme color", () => {
+  const rendered = renderSegment(
+    "time_spent",
+    makeContext({
+      timeFocus: true,
+      sessionStartTime: Date.now() - 2_000,
+      theme: { fg: (color: string, text: string) => `<${color}>${text}</${color}>` },
+    }),
+  );
+
+  assert.equal(rendered.visible, true);
+  assert.match(rendered.content, /^<warning>/);
+  assert.match(rendered.content, /<\/warning>$/);
+});
 
 test("cost segment shows reported session cost even when using subscription auth", () => {
   const rendered = renderSegment(

@@ -3,6 +3,7 @@ import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   MAX_POWERLINE_ROWS,
+  packPowerlineLayout,
   packSegmentsIntoRows,
   type LayoutSegment,
 } from "../responsive-layout.ts";
@@ -78,4 +79,66 @@ test("does not emit an unsplittable wide grapheme beyond terminal width", () => 
 test("returns no rows when outer padding cannot fit", () => {
   assert.deepEqual(packSegmentsIntoRows([segment("status")], 2, 1), []);
   assert.deepEqual(packSegmentsIntoRows([segment("status")], 0, 1), []);
+});
+
+test("flow layout preserves flattened packing order", () => {
+  const layout = packPowerlineLayout(
+    "flow",
+    [segment("aaa")],
+    [segment("bbb")],
+    [segment("ccc")],
+    9,
+    1,
+  );
+
+  assert.deepEqual(layout, {
+    topRows: [["aaa", "bbb"]],
+    secondaryRows: [["ccc"]],
+  });
+});
+
+test("balanced layout keeps work and metrics in separate bands", () => {
+  const layout = packPowerlineLayout(
+    "balanced",
+    [segment("aaa")],
+    [segment("bbb")],
+    [segment("ccc")],
+    9,
+    1,
+  );
+
+  assert.deepEqual(layout, {
+    topRows: [["aaa"]],
+    secondaryRows: [["bbb", "ccc"]],
+  });
+});
+
+test("balanced layout wraps each band independently", () => {
+  const layout = packPowerlineLayout(
+    "balanced",
+    [segment("work1"), segment("work2")],
+    [segment("metric1"), segment("metric2")],
+    [],
+    9,
+    1,
+  );
+
+  assert.deepEqual(layout.topRows, [["work1"], ["work2"]]);
+  assert.deepEqual(layout.secondaryRows, [["metric1"], ["metric2"]]);
+});
+
+test("balanced layout reserves one of seven rows for metrics", () => {
+  const layout = packPowerlineLayout(
+    "balanced",
+    Array.from({ length: 10 }, (_, index) => segment(`work${index}`)),
+    [segment("timer")],
+    [],
+    7,
+    1,
+  );
+
+  assert.equal(layout.topRows.length, 6);
+  assert.deepEqual(layout.topRows.flat(), Array.from({ length: 6 }, (_, index) => `work${index}`));
+  assert.deepEqual(layout.secondaryRows, [["timer"]]);
+  assert.equal(layout.topRows.length + layout.secondaryRows.length, MAX_POWERLINE_ROWS);
 });

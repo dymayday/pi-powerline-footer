@@ -15,6 +15,8 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   );
 
   assert.equal(config.preset, "compact");
+  assert.equal(config.layout, "flow");
+  assert.equal(config.timeFocus, false);
   assert.equal(config.customItems.length, 2);
   assert.equal(config.customItems[0].id, "ci");
   assert.equal(config.customItems[0].statusKey, "ci-status");
@@ -22,6 +24,43 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.customItems[1].hideWhenMissing, false);
   assert.equal(config.mouseScroll, true);
   assert.equal(config.fixedEditor, true);
+});
+
+test("parsePowerlineConfig accepts balanced layout and focused time", () => {
+  const config = parsePowerlineConfig(
+    { preset: "default", layout: "balanced", timeFocus: true },
+    ["default", "compact"],
+  );
+
+  assert.equal(config.layout, "balanced");
+  assert.equal(config.timeFocus, true);
+});
+
+test("parsePowerlineConfig rejects invalid layout and time focus values", () => {
+  const config = parsePowerlineConfig(
+    { preset: "default", layout: "rows", timeFocus: "yes" },
+    ["default", "compact"],
+  );
+
+  assert.equal(config.layout, "flow");
+  assert.equal(config.timeFocus, false);
+});
+
+test("focused time is inserted once at the front of metric segments", () => {
+  const merged = mergeSegmentsWithCustomItems(
+    {
+      leftSegments: ["path", "time_spent"],
+      rightSegments: ["git", "time_spent"],
+      secondarySegments: ["time_spent", "extension_statuses"],
+      separator: "powerline",
+    },
+    [],
+    true,
+  );
+
+  assert.deepEqual(merged.leftSegments, ["path"]);
+  assert.deepEqual(merged.rightSegments, ["time_spent", "git"]);
+  assert.deepEqual(merged.secondarySegments, ["extension_statuses"]);
 });
 
 test("parsePowerlineConfig supports disabling mouse scroll", () => {
@@ -124,11 +163,12 @@ test("nextPowerlineSettingWithOptions preserves object settings", () => {
   if (typeof updated !== "object" || updated === null || Array.isArray(updated)) {
     assert.fail("expected an object powerline setting");
   }
+  const setting = updated as Record<string, unknown>;
 
-  assert.equal(updated.preset, "default");
-  assert.equal(updated.fixedEditor, false);
-  assert.equal(updated.mouseScroll, false);
-  assert.deepEqual(updated.customItems, [{ id: "ci" }]);
+  assert.equal(setting.preset, "default");
+  assert.equal(setting.fixedEditor, false);
+  assert.equal(setting.mouseScroll, false);
+  assert.deepEqual(setting.customItems, [{ id: "ci" }]);
 });
 
 test("nextPowerlineSettingWithOptions converts string presets to object settings", () => {
