@@ -1,4 +1,5 @@
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { PowerlineLayout } from "./types.ts";
 
 export const MAX_POWERLINE_ROWS = 7;
 
@@ -11,9 +12,10 @@ export function packSegmentsIntoRows(
   segments: readonly LayoutSegment[],
   availableWidth: number,
   separatorWidth: number,
+  maxRows = MAX_POWERLINE_ROWS,
 ): string[][] {
   const contentWidth = availableWidth - 2;
-  if (contentWidth <= 0 || segments.length === 0) return [];
+  if (contentWidth <= 0 || segments.length === 0 || maxRows <= 0) return [];
 
   const rows: string[][] = [];
   let currentRow: string[] = [];
@@ -24,7 +26,7 @@ export function packSegmentsIntoRows(
     rows.push(currentRow);
     currentRow = [];
     currentWidth = 0;
-    return rows.length < MAX_POWERLINE_ROWS;
+    return rows.length < maxRows;
   };
 
   for (const segment of segments) {
@@ -58,6 +60,68 @@ export function packSegmentsIntoRows(
     }
   }
 
-  if (currentRow.length > 0 && rows.length < MAX_POWERLINE_ROWS) rows.push(currentRow);
+  if (currentRow.length > 0 && rows.length < maxRows) rows.push(currentRow);
   return rows;
+}
+
+export interface PackedPowerlineLayout {
+  topRows: string[][];
+  secondaryRows: string[][];
+}
+
+export function packPowerlineLayout(
+  layout: PowerlineLayout,
+  leftSegments: readonly LayoutSegment[],
+  rightSegments: readonly LayoutSegment[],
+  secondarySegments: readonly LayoutSegment[],
+  availableWidth: number,
+  separatorWidth: number,
+): PackedPowerlineLayout {
+  const metricSegments = [...rightSegments, ...secondarySegments];
+
+  if (layout === "flow") {
+    const rows = packSegmentsIntoRows(
+      [...leftSegments, ...metricSegments],
+      availableWidth,
+      separatorWidth,
+    );
+    return { topRows: rows.slice(0, 1), secondaryRows: rows.slice(1) };
+  }
+
+  if (leftSegments.length === 0) {
+    return {
+      topRows: [],
+      secondaryRows: packSegmentsIntoRows(
+        metricSegments,
+        availableWidth,
+        separatorWidth,
+      ),
+    };
+  }
+
+  if (metricSegments.length === 0) {
+    return {
+      topRows: packSegmentsIntoRows(
+        leftSegments,
+        availableWidth,
+        separatorWidth,
+      ),
+      secondaryRows: [],
+    };
+  }
+
+  const topRows = packSegmentsIntoRows(
+    leftSegments,
+    availableWidth,
+    separatorWidth,
+    MAX_POWERLINE_ROWS - 1,
+  );
+  const secondaryRows = packSegmentsIntoRows(
+    metricSegments,
+    availableWidth,
+    separatorWidth,
+    MAX_POWERLINE_ROWS - topRows.length,
+  );
+
+  return { topRows, secondaryRows };
 }
