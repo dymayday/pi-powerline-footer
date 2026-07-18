@@ -37,7 +37,7 @@ import { createRenderScheduler } from "./render-scheduler.ts";
 import { readCoreContextUsage } from "./context-usage.ts";
 import { createSubagentStatusController } from "./subagents-status.ts";
 import { renderFixedEditorCluster } from "./fixed-editor/cluster.ts";
-import { packSegmentsIntoRows } from "./responsive-layout.ts";
+import { packPowerlineLayout } from "./responsive-layout.ts";
 import { emergencyTerminalModeReset, TerminalSplitCompositor } from "./fixed-editor/terminal-split.ts";
 import { getDefaultColors } from "./theme.ts";
 import type { CodexQuota } from "./codex-quota.ts";
@@ -885,28 +885,43 @@ function buildContentFromParts(
   return " " + parts.join(` ${sepAnsi}${sep}${ansi.reset} `) + ansi.reset + " ";
 }
 
-/** Pack visible segments in preset order across up to seven Powerline rows. */
+interface ResponsiveLayout {
+  topLines: string[];
+  secondaryLines: string[];
+}
+
+/** Render visible segments into named work and metric bands. */
 function computeResponsiveLayout(
   ctx: SegmentContext,
   presetDef: ReturnType<typeof getPreset>,
   availableWidth: number,
-): string[] {
+): ResponsiveLayout {
   const separatorDef = getSeparator(presetDef.separator);
   const separatorWidth = visibleWidth(separatorDef.left) + 2;
-  const mergedSegments = mergeSegmentsWithCustomItems(presetDef, config.customItems);
-  const segmentIds = [
-    ...mergedSegments.leftSegments,
-    ...mergedSegments.rightSegments,
-    ...mergedSegments.secondarySegments,
-  ];
+  const mergedSegments = mergeSegmentsWithCustomItems(
+    presetDef,
+    config.customItems,
+    config.timeFocus,
+  );
+  const renderSegments = (segmentIds: readonly StatusLineSegmentId[]) =>
+    segmentIds
+      .map((segmentId) => renderSegmentWithWidth(segmentId, ctx))
+      .filter((segment) => segment.visible)
+      .map(({ content, width }) => ({ content, width }));
 
-  const renderedSegments = segmentIds
-    .map((segmentId) => renderSegmentWithWidth(segmentId, ctx))
-    .filter((segment) => segment.visible)
-    .map(({ content, width }) => ({ content, width }));
+  const packed = packPowerlineLayout(
+    config.layout,
+    renderSegments(mergedSegments.leftSegments),
+    renderSegments(mergedSegments.rightSegments),
+    renderSegments(mergedSegments.secondarySegments),
+    availableWidth,
+    separatorWidth,
+  );
 
-  return packSegmentsIntoRows(renderedSegments, availableWidth, separatorWidth)
-    .map((row) => buildContentFromParts(row, presetDef));
+  return {
+    topLines: packed.topRows.map((row) => buildContentFromParts(row, presetDef)),
+    secondaryLines: packed.secondaryRows.map((row) => buildContentFromParts(row, presetDef)),
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -952,7 +967,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   
   // Cache for the top and secondary powerline widgets.
   let lastLayoutWidth = 0;
-  let lastLayoutResult: string[] | null = null;
+  let lastLayoutResult: ResponsiveLayout | null = null;
   let lastLayoutTimestamp = 0;
   let layoutDirty = true;
   let forceNextLayoutRecompute = false;
@@ -2167,7 +2182,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
    * Get cached responsive layout or compute fresh one.
    * The segment context scans session state, so keep it stable across render bursts.
    */
-  function getResponsiveLayout(width: number, theme: Theme): string[] {
+  function getResponsiveLayout(width: number, theme: Theme): ResponsiveLayout {
     const now = Date.now();
     const cacheTtl = isStreaming ? STREAMING_LAYOUT_CACHE_TTL_MS : LAYOUT_CACHE_TTL_MS;
 
@@ -2192,7 +2207,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       if (!isStaleExtensionContextError(error)) throw error;
       currentCtx = null;
       lastLayoutWidth = width;
-      lastLayoutResult = [];
+      lastLayoutResult = { topLines: [], secondaryLines: [] };
       lastLayoutTimestamp = now;
       layoutDirty = false;
       forceNextLayoutRecompute = false;
@@ -2228,12 +2243,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   function renderPowerlineTopLines(width: number, theme: Theme): string[] {
     if (!currentCtx) return [];
-    return getResponsiveLayout(width, theme).slice(0, 1);
+    return getResponsiveLayout(width, theme).topLines;
   }
 
   function renderPowerlineSecondaryLines(width: number, theme: Theme): string[] {
     if (!currentCtx) return [];
-    return getResponsiveLayout(width, theme).slice(1);
+    return getResponsiveLayout(width, theme).secondaryLines;
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {

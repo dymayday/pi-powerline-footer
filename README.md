@@ -67,6 +67,33 @@ You can also set it in `~/.pi/agent/settings.json` or project-local `.pi/setting
 
 Use `"fixedEditor": true` to enable it again. Add `"mouseScroll": false` if you want native terminal selection instead of fixed-editor mouse handling.
 
+### Layout configuration
+
+The default `flow` layout keeps the existing width-based packing. Use `balanced` to keep work context above the editor and resource metrics below it; each band wraps independently on narrow terminals.
+
+```json
+{
+  "powerline": {
+    "preset": "default",
+    "layout": "balanced"
+  }
+}
+```
+
+Add `"timeFocus": true` to show elapsed session time first in the metric band with warning-color emphasis. This works with every preset:
+
+```json
+{
+  "powerline": {
+    "preset": "default",
+    "layout": "balanced",
+    "timeFocus": true
+  }
+}
+```
+
+`layout` defaults to `"flow"`; `timeFocus` defaults to `false`.
+
 | Preset | Description |
 |--------|-------------|
 | `default` | Model, thinking, path (basename), git, subagents, context, tokens, cost, quota |
